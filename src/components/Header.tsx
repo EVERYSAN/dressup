@@ -8,13 +8,13 @@ export const Header: React.FC = () => {
 
   return (
     <>
-      <header className="h-16 bg-gray-950 border-b border-gray-800 flex items-center justify-between px-6">
+      <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-2">
             <h1 className="text-xl font-semibold text-gray-100 hidden md:block">
               DRESSUP | AI画像編集ツール
             </h1>
-            <h1 className="text-xl font-semibold text-gray-100 md:hidden">
+            <h1 className="text-xl font-semibold text-gray-900 md:hidden">
               NB Editor
             </h1>
           </div>
