@@ -182,7 +182,7 @@ export const ImageCanvas: React.FC = () => {
             <Button variant="outline" size="sm" onClick={() => handleZoom(-0.1)}>
               <ZoomOut className="h-4 w-4" />
             </Button>
-            <span className="text-sm text-gray-950 min-w-[60px] text-center">
+            <span className="text-sm text-gray-600 min-w-[60px] text-center">
               {Math.round(canvasZoom * 100)}%
             </span>
             <Button variant="outline" size="sm" onClick={() => handleZoom(0.1)}>
