@@ -251,18 +251,15 @@ export const ImageCanvas: React.FC = () => {
               <h2 className="text-xl font-medium text-gray-700 mb-2">
                 DRESSUP にようこそ
               </h2>
-              <p className="text-gray-600 max-w-md">
-                {selectedTool === 'generate' 
-                  ? '始め方：
-① 画像を2枚アップロードしてください
-　- 1枚目：変更元画像（モデルの人物写真）
-　- 2枚目：差し替えたい画像（服やアクセサリーの写真）
-
-② 変更したい箇所をAIに指示してください
-　例）「1枚目の服を2枚目の服に置き換えてください」
-　例）「1枚目の人物に2枚目のネックレスを追加してください」'
-                  : 'Upload an image to begin editing'
-                }
+              <div className="space-y-2 text-gray-600 max-w-md">
+                <p>始め方：</p>
+                <p>① 画像を2枚アップロードしてください</p>
+                <p>　- 1枚目：変更元画像（モデルの人物写真）</p>
+                <p>　- 2枚目：差し替えたい画像（服やアクセサリーの写真）</p>
+                <p>② 変更したい箇所をAIに指示してください</p>
+                <p>　例）「1枚目の服を2枚目の服に置き換えてください」</p>
+                <p>　例）「1枚目の人物に2枚目のネックレスを追加してください」</p>
+              </div>
               </p>
             </div>
           </div>
