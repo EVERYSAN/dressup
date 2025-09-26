@@ -1,96 +1,102 @@
-// src/hooks/useImageGeneration.ts
 import { useMutation } from "@tanstack/react-query";
 import geminiService, { fileToDataURL, MaybeFile } from "../services/geminiService";
 import { useAppStore } from "../store/useAppStore";
 
-const DEBUG = () =>
-  (typeof window !== 'undefined' && (localStorage.getItem('DEBUG_DRESSUP') === '1'));
+// デバッグ切り替え（必要ならブラウザで localStorage.setItem('DEBUG_DRESSUP','1')）
+const DEBUG = () => (typeof window !== "undefined" && localStorage.getItem("DEBUG_DRESSUP") === "1");
+const log = (...a: any[]) => { if (DEBUG()) console.log("[DRESSUP][hooks]", ...a); };
 
-// レスポンスから画像データ(DataURL)を robust に抽出
-function extractImageDataURL(resp: any): string | null {
+// レスポンスから最初の画像を dataURL で取り出す
+function extractFirstImageDataURL(resp: any): string | null {
   try {
-    // 典型: candidates[0].content.parts[].inlineData.{mimeType,data}
     const parts = resp?.candidates?.[0]?.content?.parts;
     if (Array.isArray(parts)) {
       for (const p of parts) {
         const d = p?.inlineData;
         if (d?.data) {
-          const mime = d?.mimeType || 'image/png';
+          const mime = d?.mimeType || "image/png";
           return `data:${mime};base64,${d.data}`;
-        }
-        // 念のため fileData 系にも対応（将来拡張用）
-        const f = p?.fileData;
-        if (f?.fileUri) {
-          // fileUri の場合は別ダウンロードが要るが、まずはログ
-          if (DEBUG()) console.warn('[DRESSUP] fileUri found (not auto-fetching):', f.fileUri);
         }
       }
     }
-  } catch (e) {
-    // noop
-  }
+  } catch {}
   return null;
 }
 
-// ---------- 生成 ----------
-export function useImageGeneration() {
+/** 画像生成：テキスト+（任意）参照画像 → ギャラリーに追加 */
+export function useImageGeneration(): {
+  generate: (p: { prompt: string; referenceImages?: (MaybeFile | string)[]; model?: string }) => Promise<any>;
+  isPending: boolean;
+} {
+  log("useImageGeneration() called");
   const { addUploadedImage } = useAppStore();
 
-  return useMutation<any, Error, { prompt: string; referenceImages?: (MaybeFile | string)[]; model?: string }>({
+  const m = useMutation<any, Error, { prompt: string; referenceImages?: (MaybeFile | string)[]; model?: string }>({
     mutationKey: ["generate"],
     mutationFn: async (p) => {
       const refs = p.referenceImages
         ? await Promise.all(
-            p.referenceImages.map(async (x) =>
-              typeof x === "string" ? x : await fileToDataURL(x as File)
-            )
+            p.referenceImages.map(async (x) => (typeof x === "string" ? x : await fileToDataURL(x as File)))
           )
         : undefined;
-      if (DEBUG()) console.log('[DRESSUP][gen] start', { prompt: p.prompt, refCount: refs?.length || 0 });
-      const resp = await geminiService.generate({ prompt: p.prompt, referenceImages: refs, model: p.model });
-      if (DEBUG()) console.log('[DRESSUP][gen] resp', resp);
 
-      const dataUrl = extractImageDataURL(resp);
+      log("generate start", { promptLen: p.prompt?.length, refCount: refs?.length || 0 });
+      const resp = await geminiService.generate({ prompt: p.prompt, referenceImages: refs, model: p.model });
+      log("generate resp", resp);
+
+      const dataUrl = extractFirstImageDataURL(resp);
       if (dataUrl) {
-        addUploadedImage(dataUrl); // 生成結果をギャラリー側に追加
+        addUploadedImage(dataUrl);
+        log("generate image extracted ✓");
       } else {
-        console.warn('[DRESSUP][gen] no image in response');
+        console.warn("[DRESSUP] generate: no image in response");
       }
       return resp;
     },
   });
+
+  return { generate: m.mutateAsync, isPending: m.isPending };
 }
 
-// ---------- 編集 ----------
-export function useImageEditing() {
+/** 画像編集：元画像(canvas)＋（任意）参照 → キャンバスを更新 */
+export function useImageEditing(): {
+  edit: (instruction: string) => Promise<any>;
+  isPending: boolean;
+} {
+  log("useImageEditing() called");
   const { canvasImage, editReferenceImages, setCanvasImage } = useAppStore();
 
-  return useMutation<any, Error, string>({
+  const m = useMutation<any, Error, string>({
     mutationKey: ["edit-image"],
     mutationFn: async (instruction) => {
-      if (!instruction?.trim()) throw new Error("編集内容（prompt）が空です");
-      if (!canvasImage) throw new Error("元画像（canvasImage）が未設定です");
-      const img2 = editReferenceImages?.[0];
+      const prompt = instruction?.trim();
+      log("edit start", { hasCanvas: !!canvasImage, hasRef: !!(editReferenceImages?.[0]), promptLen: prompt?.length });
 
-      if (DEBUG()) console.log('[DRESSUP][edit] start', { instruction, hasImg1: !!canvasImage, hasImg2: !!img2 });
-      const resp = await geminiService.editImage({
-        prompt: instruction.trim(),
-        image1: canvasImage,
-        image2: img2,
+      if (!prompt) throw new Error("編集内容（prompt）が空です");
+      if (!canvasImage) throw new Error("元画像（canvasImage）が未設定です");
+
+      const resp = await geminiService.edit({
+        prompt,
+        image1: canvasImage,          // 元画像（dataURL想定）
+        image2: editReferenceImages?.[0], // 参照は任意
         mime1: "image/png",
         mime2: "image/png",
       });
-      if (DEBUG()) console.log('[DRESSUP][edit] resp', resp);
+      log("edit resp", resp);
 
-      const dataUrl = extractImageDataURL(resp);
+      const dataUrl = extractFirstImageDataURL(resp);
       if (dataUrl) {
-        setCanvasImage(dataUrl); // 編集結果でキャンバス更新
+        setCanvasImage(dataUrl);
+        log("edit image extracted ✓");
       } else {
-        console.warn('[DRESSUP][edit] no image in response');
+        console.warn("[DRESSUP] edit: no image in response");
       }
       return resp;
     },
   });
+
+  // ★ここが今回の重要ポイント：必ず { edit, isPending } を返す
+  return { edit: m.mutateAsync, isPending: m.isPending };
 }
 
 export default useImageGeneration;
