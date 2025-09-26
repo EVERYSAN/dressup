@@ -175,14 +175,14 @@ export const ImageCanvas: React.FC = () => {
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="p-3 border-b border-gray-800 bg-gray-100">
+      <div className="p-3 border-b border-gray-200 bg-white">
         <div className="flex items-center justify-between">
           {/* Left side - Zoom controls */}
           <div className="flex items-center space-x-2">
             <Button variant="outline" size="sm" onClick={() => handleZoom(-0.1)}>
               <ZoomOut className="h-4 w-4" />
             </Button>
-            <span className="text-sm text-gray-400 min-w-[60px] text-center">
+            <span className="text-sm text-gray-600 min-w-[60px] text-center">
               {Math.round(canvasZoom * 100)}%
             </span>
             <Button variant="outline" size="sm" onClick={() => handleZoom(0.1)}>
@@ -243,15 +243,15 @@ export const ImageCanvas: React.FC = () => {
       {/* Canvas Area */}
       <div 
         id="canvas-container" 
-        className="flex-1 relative overflow-hidden bg-gray-800"
+        className="flex-1 relative overflow-hidden bg-white"
       >
         {!image && !isGenerating && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center">
-              <h2 className="text-xl font-medium text-gray-300 mb-2">
+              <h2 className="text-xl font-medium text-gray-700 mb-2">
                 Welcome to Nano Banana Framework
               </h2>
-              <p className="text-gray-500 max-w-md">
+              <p className="text-gray-600 max-w-md">
                 {selectedTool === 'generate' 
                   ? 'Start by describing what you want to create in the prompt box'
                   : 'Upload an image to begin editing'
@@ -262,10 +262,10 @@ export const ImageCanvas: React.FC = () => {
         )}
 
         {isGenerating && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/50">
+          <div className="absolute inset-0 flex items-center justify-center bg-white/70">
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400 mb-4" />
-              <p className="text-gray-300">Creating your image...</p>
+              <p className="text-gray-700">Creating your image...</p>
             </div>
           </div>
         )}
@@ -338,8 +338,8 @@ export const ImageCanvas: React.FC = () => {
       </div>
 
       {/* Status Bar */}
-      <div className="p-3 border-t border-gray-200 bg-gray-100">
-        <div className="flex items-center justify-between text-xs text-gray-500">
+      <div className="p-3 border-t border-gray-200 bg-white">
+        <div className="flex items-center justify-between text-xs text-gray-600">
           <div className="flex items-center space-x-4">
             {brushStrokes.length > 0 && (
               <span className="text-yellow-400">{brushStrokes.length} brush stroke{brushStrokes.length !== 1 ? 's' : ''}</span>
