@@ -1,23 +1,6 @@
 // src/services/geminiService.ts
 export type MaybeFile = File | string;
 
-export type EditAny = {
-  // 新
-  prompt?: string;
-  image1?: MaybeFile;
-  image2?: MaybeFile;
-  mime1?: string;
-  mime2?: string;
-  model?: string;
-  // 旧
-  instruction?: string;
-  originalImage?: MaybeFile;
-  referenceImages?: MaybeFile[];
-  maskImage?: MaybeFile;
-  temperature?: number;
-  seed?: number;
-};
-
 export const fileToDataURL = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const r = new FileReader();
@@ -30,6 +13,8 @@ const maybeToDataURL = async (x?: MaybeFile) => {
   if (!x) return undefined;
   return typeof x === "string" ? x : await fileToDataURL(x);
 };
+
+const stripDataUrl = (s?: string) => (s ?? "").replace(/^data:[^;]+;base64,/, "");
 
 async function jsonFetch<T = any>(url: string, body: any): Promise<T> {
   const res = await fetch(url, {
@@ -48,40 +33,58 @@ async function jsonFetch<T = any>(url: string, body: any): Promise<T> {
   }
 }
 
-async function normalizeEdit(req: EditAny) {
-  const image1New = await maybeToDataURL(req.image1);
-  const image1Old = await maybeToDataURL(req.originalImage);
-  let image2New = await maybeToDataURL(req.image2);
-  if (!image2New && req.referenceImages?.length) {
-    image2New = await maybeToDataURL(req.referenceImages[0]);
-  }
-  const prompt = (req.prompt ?? req.instruction ?? "").trim();
-  return {
-    prompt,
-    image1: image1New ?? image1Old,
-    image2: image2New,
-    mime1: req.mime1 || "image/png",
-    mime2: req.mime2 || "image/png",
-    model: req.model || "gemini-2.0-flash-exp",
-  };
-}
-
 export class GeminiService {
-  async edit(req: EditAny) {
-    const body = await normalizeEdit(req);
-    return jsonFetch("/api/edit", body);
-  }
-  async editImage(req: EditAny) {
-    return this.edit(req);
-  }
-  async generate(req: { prompt: string; model?: string }) {
+  // テキスト＋（任意）参照画像での生成
+  async generate(req: {
+    prompt: string;
+    referenceImages?: (MaybeFile | string)[];
+    model?: string; // default gemini-1.5-flash
+  }) {
+    const parts: any[] = [{ text: req.prompt }];
+    if (req.referenceImages?.length) {
+      for (const img of req.referenceImages) {
+        const durl = await maybeToDataURL(img as MaybeFile);
+        if (durl) {
+          parts.push({
+            inlineData: { mimeType: "image/png", data: stripDataUrl(durl) },
+          });
+        }
+      }
+    }
     const body = {
       model: req.model || "gemini-1.5-flash",
-      contents: [{ parts: [{ text: req.prompt }] }],
+      contents: [{ parts }],
     };
     return jsonFetch("/api/generate", body);
   }
-  async generateImage(req: { prompt: string; model?: string }) {
+
+  // 画像編集（1枚目＝元画像、2枚目＝置き換え/付け足し）
+  async edit(req: {
+    prompt: string;
+    image1: MaybeFile | string; // 元画像（必須）
+    image2?: MaybeFile | string; // 参照（任意）
+    mime1?: string;
+    mime2?: string;
+    model?: string; // default gemini-2.0-flash-exp
+  }) {
+    const image1 = await maybeToDataURL(req.image1);
+    const image2 = await maybeToDataURL(req.image2 as any);
+    const body = {
+      prompt: req.prompt,
+      image1,
+      image2,
+      mime1: req.mime1 || "image/png",
+      mime2: req.mime2 || "image/png",
+      model: req.model || "gemini-2.0-flash-exp",
+    };
+    return jsonFetch("/api/edit", body);
+  }
+
+  // 旧名互換
+  async editImage(req: Parameters<GeminiService["edit"]>[0]) {
+    return this.edit(req);
+  }
+  async generateImage(req: Parameters<GeminiService["generate"]>[0]) {
     return this.generate(req);
   }
 }
