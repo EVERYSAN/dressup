@@ -47,6 +47,5 @@ export function useImageGeneration() {
 }
 
 export default useImageGeneration;
-export function useImageEditing() {
-  return useImageGeneration();
+export const useImageEditing = useImageGeneration
 }
