@@ -51,7 +51,7 @@ export const HistoryPanel: React.FC = () => {
 
   if (!showHistory) {
     return (
-      <div className="w-8 bg-gray-950 border-l border-gray-800 flex flex-col items-center justify-center">
+      <div className="w-8 bg-gray-950 border-l border-gray-200 flex flex-col items-center justify-center">
         <button
           onClick={() => setShowHistory(true)}
           className="w-6 h-16 bg-gray-800 hover:bg-gray-700 rounded-l-lg border border-r-0 border-gray-700 flex items-center justify-center transition-colors group"
@@ -68,7 +68,7 @@ export const HistoryPanel: React.FC = () => {
   }
 
   return (
-    <div className="w-80 bg-gray-950 border-l border-gray-800 p-6 flex flex-col h-full">
+    <div className="w-80 bg-gray-950 border-l border-gray-200 p-6 flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-2">
@@ -128,7 +128,7 @@ export const HistoryPanel: React.FC = () => {
                 )}
                 
                 {/* Variant Number */}
-                <div className="absolute top-2 left-2 bg-gray-900/80 text-xs px-2 py-1 rounded">
+                <div className="absolute top-2 left-2 bg-gray-white/80 text-xs px-2 py-1 rounded">
                   #{index + 1}
                 </div>
               </div>
@@ -176,7 +176,7 @@ export const HistoryPanel: React.FC = () => {
 
       {/* Current Image Info */}
       {(canvasImage || imageDimensions) && (
-        <div className="mb-4 p-3 bg-gray-900 rounded-lg border border-gray-700">
+        <div className="mb-4 p-3 bg-white rounded-lg border border-gray-700">
           <h4 className="text-xs font-medium text-gray-400 mb-2">Current Image</h4>
           <div className="space-y-1 text-xs text-gray-500">
             {imageDimensions && (
@@ -194,7 +194,7 @@ export const HistoryPanel: React.FC = () => {
       )}
 
       {/* Generation Details */}
-      <div className="mb-6 p-4 bg-gray-900 rounded-lg border border-gray-700 flex-1 overflow-y-auto min-h-0">
+      <div className="mb-6 p-4 bg-white rounded-lg border border-gray-700 flex-1 overflow-y-auto min-h-0">
         <h4 className="text-xs font-medium text-gray-400 mb-2">Generation Details</h4>
         {(() => {
           const gen = generations.find(g => g.id === selectedGenerationId);
@@ -244,7 +244,7 @@ export const HistoryPanel: React.FC = () => {
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
                             <ImageIcon className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                           </div>
-                          <div className="absolute bottom-1 left-1 bg-gray-900/80 text-xs px-1 py-0.5 rounded text-gray-300">
+                          <div className="absolute bottom-1 left-1 bg-white/80 text-xs px-1 py-0.5 rounded text-gray-300">
                             Ref {index + 1}
                           </div>
                         </button>
