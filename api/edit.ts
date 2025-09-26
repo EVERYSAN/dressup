@@ -38,3 +38,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: 'FUNCTION_INVOCATION_FAILED', detail: e?.message || String(e) });
   }
 }
+console.log("[api/edit] model=", model || "gemini-2.5-flash-image-preview",
+            "has image1=", !!image1, "has image2=", !!image2);
