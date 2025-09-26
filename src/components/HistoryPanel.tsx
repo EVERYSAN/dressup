@@ -68,12 +68,12 @@ export const HistoryPanel: React.FC = () => {
   }
 
   return (
-    <div className="w-80 bg-gray-950 border-l border-gray-200 p-6 flex flex-col h-full">
+    <div className="w-80 bg-white border-l border-gray-200 p-6 flex flex-col h-full shadow-sm">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-2">
           <History className="h-5 w-5 text-gray-400" />
-          <h3 className="text-sm font-medium text-gray-300">History & Variants</h3>
+          <h3 className="text-sm font-semibold text-gray-800">History & Variants</h3>
         </div>
         <Button
           variant="ghost"
@@ -88,7 +88,7 @@ export const HistoryPanel: React.FC = () => {
 
       {/* Variants Grid */}
       <div className="mb-6 flex-shrink-0">
-        <h4 className="text-xs font-medium text-gray-400 mb-3">Current Variants</h4>
+        <h4 className="text-xs font-semibold text-gray-700 mb-3">Current Variants</h4>
         {generations.length === 0 && edits.length === 0 ? (
           <div className="text-center py-8">
             <div className="text-4xl mb-2">🖼️</div>
@@ -104,7 +104,7 @@ export const HistoryPanel: React.FC = () => {
                   'relative aspect-square rounded-lg border-2 cursor-pointer transition-all duration-200 overflow-hidden',
                   selectedGenerationId === generation.id
                     ? 'border-yellow-400'
-                    : 'border-gray-700 hover:border-gray-600'
+                    : 'border-gray-200 hover:border-gray-300'
                 )}
                 onClick={() => {
                   selectGeneration(generation.id);
@@ -122,7 +122,7 @@ export const HistoryPanel: React.FC = () => {
                     />
                   </>
                 ) : (
-                  <div className="w-full h-full bg-gray-800 flex items-center justify-center">
+                  <div className="w-full h-full bg-gray-100 flex items-center justify-center">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-yellow-400" />
                   </div>
                 )}
@@ -176,13 +176,13 @@ export const HistoryPanel: React.FC = () => {
 
       {/* Current Image Info */}
       {(canvasImage || imageDimensions) && (
-        <div className="mb-4 p-3 bg-white rounded-lg border border-gray-700">
-          <h4 className="text-xs font-medium text-gray-400 mb-2">Current Image</h4>
+        <div className="mb-4 p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
+          <h4 className="text-xs font-semibold text-gray-700 mb-2">Current Image</h4>
           <div className="space-y-1 text-xs text-gray-500">
             {imageDimensions && (
               <div className="flex justify-between">
                 <span>Dimensions:</span>
-                <span className="text-gray-300">{imageDimensions.width} × {imageDimensions.height}</span>
+                <span className="text-gray-900">{imageDimensions.width} × {imageDimensions.height}</span>
               </div>
             )}
             <div className="flex justify-between">
@@ -194,8 +194,8 @@ export const HistoryPanel: React.FC = () => {
       )}
 
       {/* Generation Details */}
-      <div className="mb-6 p-4 bg-white rounded-lg border border-gray-700 flex-1 overflow-y-auto min-h-0">
-        <h4 className="text-xs font-medium text-gray-400 mb-2">Generation Details</h4>
+      <div className="mb-6 p-4 bg-white rounded-lg border border-gray-200 shadow-sm flex-1 overflow-y-auto min-h-0">
+        <h4 className="text-xs font-semibold text-gray-700 mb-2">Generation Details</h4>
         {(() => {
           const gen = generations.find(g => g.id === selectedGenerationId);
           const selectedEdit = edits.find(e => e.id === selectedEditId);
@@ -205,8 +205,8 @@ export const HistoryPanel: React.FC = () => {
               <div className="space-y-3">
                 <div className="space-y-2 text-xs text-gray-500">
                   <div>
-                    <span className="text-gray-400">Prompt:</span>
-                    <p className="text-gray-300 mt-1">{gen.prompt}</p>
+                    <span className="text-gray-700">Prompt:</span>
+                    <p className="text-gray-800 mt-1">{gen.prompt}</p>
                   </div>
                   <div className="flex justify-between">
                     <span>Model:</span>
@@ -223,7 +223,7 @@ export const HistoryPanel: React.FC = () => {
                 {/* Reference Images */}
                 {gen.sourceAssets.length > 0 && (
                   <div>
-                    <h5 className="text-xs font-medium text-gray-400 mb-2">Reference Images</h5>
+                    <h5 className="text-xs font-semibold text-gray-700 mb-2">Reference Images</h5>
                     <div className="grid grid-cols-2 gap-2">
                       {gen.sourceAssets.map((asset, index) => (
                         <button
@@ -244,7 +244,7 @@ export const HistoryPanel: React.FC = () => {
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
                             <ImageIcon className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                           </div>
-                          <div className="absolute bottom-1 left-1 bg-white/80 text-xs px-1 py-0.5 rounded text-gray-300">
+                          <div className="absolute bottom-1 left-1 bg-white/80 text-xs px-1 py-0.5 rounded text-gray-700">
                             Ref {index + 1}
                           </div>
                         </button>
@@ -260,8 +260,8 @@ export const HistoryPanel: React.FC = () => {
               <div className="space-y-3">
                 <div className="space-y-2 text-xs text-gray-500">
                   <div>
-                    <span className="text-gray-400">Edit Instruction:</span>
-                    <p className="text-gray-300 mt-1">{selectedEdit.instruction}</p>
+                    <span className="text-gray-700">Edit Instruction:</span>
+                    <p className="text-gray-800 mt-1">{selectedEdit.instruction}</p>
                   </div>
                   <div className="flex justify-between">
                     <span>Type:</span>
@@ -274,7 +274,7 @@ export const HistoryPanel: React.FC = () => {
                   {selectedEdit.maskAssetId && (
                     <div className="flex justify-between">
                       <span>Mask:</span>
-                      <span className="text-purple-400">Applied</span>
+                      <span className="text-purple-600">Applied</span>
                     </div>
                   )}
                 </div>
