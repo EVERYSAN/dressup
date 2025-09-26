@@ -175,7 +175,7 @@ export const ImageCanvas: React.FC = () => {
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="p-3 border-b border-gray-800 bg-gray-950">
+      <div className="p-3 border-b border-gray-800 bg-gray-100">
         <div className="flex items-center justify-between">
           {/* Left side - Zoom controls */}
           <div className="flex items-center space-x-2">
