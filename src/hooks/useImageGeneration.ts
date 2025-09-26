@@ -1,9 +1,8 @@
-// src/hooks/useImageGeneration.ts
 import { useMutation } from "@tanstack/react-query";
-import geminiService, { fileToDataURL, MaybeFile } from "../services/geminiService";
+import geminiService from "../services/geminiService";
 import { useAppStore } from "../store/useAppStore";
 
-/** Debug toggle: `localStorage.setItem('DEBUG_DRESSUP','1')` */
+/** Debug toggle: localStorage.setItem('DEBUG_DRESSUP','1') */
 const DEBUG = () => (typeof window !== "undefined" && localStorage.getItem("DEBUG_DRESSUP") === "1");
 const log = (...a: any[]) => { if (DEBUG()) console.log("[DRESSUP][hooks]", ...a); };
 
@@ -67,23 +66,18 @@ async function resolveOutputFromResponse(resp: any): Promise<{ dataUrl?: string;
 
 /** 画像生成：テキスト＋（任意）参照画像 → ギャラリーに追加 */
 export function useImageGeneration(): {
-  generate: (p: { prompt: string; referenceImages?: (MaybeFile | string)[]; model?: string }) => Promise<any>;
+  generate: (p: { prompt: string; referenceImages?: string[]; model?: string }) => Promise<any>;
   isPending: boolean;
 } {
   log("useImageGeneration() called");
   const { addUploadedImage } = useAppStore();
 
-  const m = useMutation<any, Error, { prompt: string; referenceImages?: (MaybeFile | string)[]; model?: string }>({
+  const m = useMutation<any, Error, { prompt: string; referenceImages?: string[]; model?: string }>({
     mutationKey: ["generate"],
     mutationFn: async (p) => {
-      const refs = p.referenceImages
-        ? await Promise.all(
-            p.referenceImages.map(async (x) => (typeof x === "string" ? x : await fileToDataURL(x as File)))
-          )
-        : undefined;
-
-      log("generate start", { promptLen: p.prompt?.length, refCount: refs?.length || 0 });
-      const resp = await geminiService.generate({ prompt: p.prompt, referenceImages: refs, model: p.model });
+      // 参照は dataURL の配列を想定（/api 側で変換）
+      log("generate start", { promptLen: p.prompt?.length, refCount: p.referenceImages?.length || 0 });
+      const resp = await geminiService.generate({ prompt: p.prompt, referenceImages: p.referenceImages, model: p.model });
       if (DEBUG()) console.log("[DRESSUP][gen] resp", resp);
 
       const out = await resolveOutputFromResponse(resp);
@@ -119,12 +113,14 @@ export function useImageEditing(): {
       if (!prompt) throw new Error("編集内容（prompt）が空です");
       if (!canvasImage) throw new Error("元画像（canvasImage）が未設定です");
 
+      // ★ 元画像と同一の参照は除外。無ければ image2 は省略。
+      const ref = (editReferenceImages || []).find((img) => !!img && img !== canvasImage);
+
       const resp = await geminiService.edit({
         prompt,
-        image1: canvasImage,             // 元画像（dataURL想定）
-        image2: editReferenceImages?.[0],// 参照は任意（dataURL想定）
-        mime1: "image/png",
-        mime2: "image/png",
+        image1: canvasImage,       // 元画像（dataURL）
+        image2: ref || undefined,  // 参照（同一は除外、無ければ省略）
+        model: undefined,
       });
       if (DEBUG()) console.log("[DRESSUP][edit] resp", resp);
 
