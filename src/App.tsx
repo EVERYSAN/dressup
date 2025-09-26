@@ -38,9 +38,8 @@ function AppContent() {
   }, [setShowPromptPanel, setShowHistory]);
 
   return (
-    <div className="h-screen bg-gray-900 text-gray-100 flex flex-col font-sans">
+    <div className="h-screen bg-white text-gray-900 flex flex-col font-sans">
       <Header />
-      
       <div className="flex-1 flex overflow-hidden">
         <div className={cn("flex-shrink-0 transition-all duration-300", !showPromptPanel && "w-8")}>
           <PromptComposer />
@@ -54,6 +53,7 @@ function AppContent() {
       </div>
     </div>
   );
+
 }
 
 function App() {
