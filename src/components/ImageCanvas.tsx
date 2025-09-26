@@ -249,11 +249,18 @@ export const ImageCanvas: React.FC = () => {
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center">
               <h2 className="text-xl font-medium text-gray-700 mb-2">
-                Welcome to Nano Banana Framework
+                DRESSUP にようこそ
               </h2>
               <p className="text-gray-600 max-w-md">
                 {selectedTool === 'generate' 
-                  ? 'Start by describing what you want to create in the prompt box'
+                  ? '始め方：
+① 画像を2枚アップロードしてください
+　- 1枚目：変更元画像（モデルの人物写真）
+　- 2枚目：差し替えたい画像（服やアクセサリーの写真）
+
+② 変更したい箇所をAIに指示してください
+　例）「1枚目の服を2枚目の服に置き換えてください」
+　例）「1枚目の人物に2枚目のネックレスを追加してください」'
                   : 'Upload an image to begin editing'
                 }
               </p>
