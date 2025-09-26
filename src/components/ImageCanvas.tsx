@@ -187,7 +187,7 @@ export const ImageCanvas: React.FC = () => {
               aria-label="縮小 (Zoom out)"
             >
               <ZoomOut className="h-4 w-4" />
-              <span className="hidden sm:inline ml-2 text-gray-800">Zoom −</span>
+              <span className="hidden sm:inline ml-2 text-gray-800"></span>
             </Button>
           
             <span className="text-sm text-gray-700 min-w-[60px] text-center">
@@ -202,7 +202,7 @@ export const ImageCanvas: React.FC = () => {
               aria-label="拡大 (Zoom in)"
             >
               <ZoomIn className="h-4 w-4" />
-              <span className="hidden sm:inline ml-2 text-gray-800">Zoom ＋</span>
+              <span className="hidden sm:inline ml-2 text-gray-800"></span>
             </Button>
           
             <Button
@@ -213,7 +213,7 @@ export const ImageCanvas: React.FC = () => {
               aria-label="リセット (Reset view)"
             >
               <RotateCcw className="h-4 w-4" />
-              <span className="hidden sm:inline ml-2 text-gray-800">Reset</span>
+              <span className="hidden sm:inline ml-2 text-gray-800"></span>
             </Button>
           </div>
 
