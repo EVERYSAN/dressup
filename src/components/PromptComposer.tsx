@@ -4,9 +4,9 @@ import { Button } from './ui/Button';
 import { useAppStore } from '../store/useAppStore';
 import { useImageGeneration, useImageEditing } from '../hooks/useImageGeneration';
 import { Upload, Wand2, Edit3, MousePointer, HelpCircle, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
-import { blobToBase64 } from '../utils/imageUtils';
 import { PromptHints } from './PromptHints';
 import { cn } from '../utils/cn';
+import { resizeFileToDataURL, base64SizeMB } from '../utils/resizeImage';
 
 export const PromptComposer: React.FC = () => {
   const {
@@ -33,7 +33,7 @@ export const PromptComposer: React.FC = () => {
     clearBrushStrokes,
   } = useAppStore();
 
-  // ← 必ず“実行”して返り値を受け取る（() を忘れると A is not a function の原因）
+  // Hook は必ず実行して返り値を受け取る
   const { generate, isPending: isGenPending } = useImageGeneration();
   const { edit, isPending: isEditPending } = useImageEditing();
 
@@ -42,7 +42,7 @@ export const PromptComposer: React.FC = () => {
   const [showHintsModal, setShowHintsModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 実行前に型チェック（開発時の保険）
+  // 実行前に関数型をチェック（開発時の保険）
   const assertFn = (name: string, fn: any) => {
     if (typeof fn !== 'function') {
       console.error(`[DRESSUP] ${name} is not a function`, fn);
@@ -53,6 +53,24 @@ export const PromptComposer: React.FC = () => {
   const handleGenerateOrEdit = async () => {
     const prompt = currentPrompt.trim();
     if (!prompt) return;
+
+    // 送信前の概算サイズチェック（>3.5MB は弾く）
+    const approxTotalMB = (() => {
+      const parts: string[] = [];
+      if (selectedTool === 'generate') {
+        parts.push(...uploadedImages);
+      } else {
+        if (canvasImage) parts.push(canvasImage);
+        if (editReferenceImages[0]) parts.push(editReferenceImages[0]);
+      }
+      return parts.reduce((sum, p) => sum + base64SizeMB(p), 0);
+    })();
+
+    if (approxTotalMB > 3.5) {
+      console.warn(`[DRESSUP] payload too large (~${approxTotalMB.toFixed(2)} MB). Try smaller images.`);
+      // TODO: 必要ならトースト等でユーザー通知
+      return;
+    }
 
     try {
       if (selectedTool === 'generate') {
@@ -81,8 +99,10 @@ export const PromptComposer: React.FC = () => {
     const file = event.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
       try {
-        const base64 = await blobToBase64(file);
-        const dataUrl = `data:${file.type};base64,${base64}`;
+        // ★ 413対策：アップロード直後に縮小＆再圧縮（長辺1024px, webp 品質0.85）
+        const dataUrl = await resizeFileToDataURL(file, { maxEdge: 1024, mime: 'image/webp', quality: 0.85 });
+        const mb = base64SizeMB(dataUrl);
+        console.log(`[DRESSUP] resized upload ~${mb.toFixed(2)} MB`);
 
         if (selectedTool === 'generate') {
           // 参照画像（最大2）
@@ -248,7 +268,7 @@ export const PromptComposer: React.FC = () => {
             className="min-h-[120px] resize-none"
           />
 
-        {/* Prompt Quality Indicator */}
+          {/* Prompt Quality Indicator */}
           <button onClick={() => setShowHintsModal(true)} className="mt-2 flex items-center text-xs hover:text-gray-400 transition-colors group">
             {currentPrompt.length < 20 ? (
               <HelpCircle className="h-3 w-3 mr-2 text-red-500 group-hover:text-red-400" />
