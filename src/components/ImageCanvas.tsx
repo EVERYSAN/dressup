@@ -227,7 +227,7 @@ export const ImageCanvas: React.FC = () => {
               className={cn(showMasks && 'bg-yellow-400/10 border-yellow-400/50')}
             >
               {showMasks ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-              <span className="hidden sm:inline ml-2 text-gray-800">マスク</span>
+              <span className="hidden sm:inline ml-2 text-gray-300">マスク</span>
             </Button>
             
             {canvasImage && (
