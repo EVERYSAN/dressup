@@ -12,7 +12,7 @@ export const Header: React.FC = () => {
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-2">
             <h1 className="text-xl font-semibold text-gray-100 hidden md:block">
-              DRESSUP AI 画像編集
+              DRESSUP | AI画像編集ツール
             </h1>
             <h1 className="text-xl font-semibold text-gray-100 md:hidden">
               NB Editor
