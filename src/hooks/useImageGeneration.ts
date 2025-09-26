@@ -1,6 +1,6 @@
 // src/hooks/useImageGeneration.ts
 import { useMutation } from "@tanstack/react-query";
-import geminiService, { fileToDataURL, MaybeFile } from "@/services/geminiService";
+import geminiService, { fileToDataURL, MaybeFile } from "../services/geminiService";
 
 export type UseImageGenerationParams = {
   instruction: string;
