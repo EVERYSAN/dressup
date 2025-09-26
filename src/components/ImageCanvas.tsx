@@ -246,23 +246,46 @@ export const ImageCanvas: React.FC = () => {
         className="flex-1 relative overflow-hidden bg-white"
       >
         {!image && !isGenerating && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center">
-              <h2 className="text-xl font-medium text-gray-700 mb-2">
-                DRESSUP にようこそ
+          <div className="absolute inset-0 grid place-items-center px-4">
+            <div className="w-full max-w-xl rounded-2xl border border-gray-200 bg-white shadow-sm p-6">
+              <h2 className="text-2xl font-semibold text-gray-900 text-center tracking-tight">
+                DRESSUP へようこそ
               </h2>
-              <div className="space-y-2 text-gray-600 max-w-md">
-                <p>始め方：</p>
-                <p>① 画像を2枚アップロードしてください</p>
-                <p>　- 1枚目：変更元画像（モデルの人物写真）</p>
-                <p>　- 2枚目：差し替えたい画像（服やアクセサリーの写真）</p>
-                <p>② 変更したい箇所をAIに指示してください</p>
-                <p>　例）「1枚目の服を2枚目の服に置き換えてください」</p>
-                <p>　例）「1枚目の人物に2枚目のネックレスを追加してください」</p>
-              </div>
+              <p className="mt-2 text-sm text-gray-600 text-center">
+                3分で使い始められます。左の「Upload」からどうぞ。
+              </p>
+        
+              <ol className="mt-6 space-y-4 text-gray-800">
+                <li className="flex gap-3">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-900 text-white text-xs font-semibold">1</span>
+                  <div className="leading-relaxed">
+                    <div className="font-medium">画像を2枚アップロード</div>
+                    <ul className="mt-1 ml-6 list-disc text-sm text-gray-600">
+                      <li>1枚目：変更元画像（モデルの人物写真）</li>
+                      <li>2枚目：差し替えたい画像（服やアクセサリーの写真）</li>
+                    </ul>
+                  </div>
+                </li>
+        
+                <li className="flex gap-3">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-900 text-white text-xs font-semibold">2</span>
+                  <div className="leading-relaxed">
+                    <div className="font-medium">AIに指示</div>
+                    <ul className="mt-1 ml-6 list-disc text-sm text-gray-600">
+                      <li>「1枚目の服を2枚目の服に置き換えてください」</li>
+                      <li>「1枚目の人物に2枚目のネックレスを追加してください」</li>
+                    </ul>
+                  </div>
+                </li>
+              </ol>
+        
+              <p className="mt-6 text-center text-xs text-gray-500">
+                ヒント：右上の <span className="font-medium">Masks</span> で部分指定ができます
+              </p>
             </div>
           </div>
         )}
+
 
         {isGenerating && (
           <div className="absolute inset-0 flex items-center justify-center bg-white/70">
