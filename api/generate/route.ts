@@ -1,33 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// 重要：Edgeで不安定な場合は Node ランタイムに
-export const runtime = "nodejs"; 
-export const dynamic = "force-dynamic";
+export const runtime = "nodejs";           // 重要
+export const dynamic = "force-dynamic";    // キャッシュ無効
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.NANOBANANA_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY; // ← Vercel名と一致させる
   if (!apiKey) {
     return NextResponse.json({ error: "APIキーが未設定です" }, { status: 500 });
   }
 
-  const payload = await req.json();
+  const payload = await req.json(); // { contents: [...]} 等、フロントから渡す
 
-  // ここを実際の外部APIに合わせて変更
-  const res = await fetch("https://api.example.com/generate", {
+  // Generative Language API へサーバーからプロキシ
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + encodeURIComponent(apiKey);
+
+  const res = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
-    // VercelのServerlessでタイムアウト回避したい場合は適宜調整
   });
 
-  if (!res.ok) {
-    const text = await res.text();
-    return NextResponse.json({ error: text || "外部APIエラー" }, { status: res.status });
+  const text = await res.text();
+  try {
+    const json = JSON.parse(text);
+    return NextResponse.json(json, { status: res.status });
+  } catch {
+    // APIがHTMLやプレーンを返したときの保険
+    return new NextResponse(text, { status: res.status, headers: { "Content-Type": "text/plain" } });
   }
-
-  const data = await res.json();
-  return NextResponse.json(data);
 }
