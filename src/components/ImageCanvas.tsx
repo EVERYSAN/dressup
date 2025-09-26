@@ -262,7 +262,7 @@ export const ImageCanvas: React.FC = () => {
         )}
 
         {isGenerating && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50">
+          <div className="absolute inset-0 flex items-center justify-center bg-white/50">
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400 mb-4" />
               <p className="text-gray-300">Creating your image...</p>
@@ -338,7 +338,7 @@ export const ImageCanvas: React.FC = () => {
       </div>
 
       {/* Status Bar */}
-      <div className="p-3 border-t border-gray-800 bg-gray-950">
+      <div className="p-3 border-t border-gray-200 bg-gray-100">
         <div className="flex items-center justify-between text-xs text-gray-500">
           <div className="flex items-center space-x-4">
             {brushStrokes.length > 0 && (
