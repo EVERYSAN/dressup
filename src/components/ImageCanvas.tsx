@@ -205,7 +205,7 @@ export const ImageCanvas: React.FC = () => {
                     max="50"
                     value={brushSize}
                     onChange={(e) => setBrushSize(parseInt(e.target.value))}
-                    className="w-16 h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer slider"
+                    className="w-16 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
                   />
                   <span className="text-xs text-gray-400 w-6">{brushSize}</span>
                 </div>
