@@ -37,9 +37,10 @@ function AppContent() {
     return () => window.removeEventListener('resize', checkMobile);
   }, [setShowPromptPanel, setShowHistory]);
 
-  return (
-    <div className="h-screen bg-white text-gray-900 flex flex-col font-sans">
+    return (
+    <div className="min-h-screen bg-white text-gray-900 flex flex-col font-sans">
       <Header />
+  
       <div className="flex-1 flex overflow-hidden">
         <div className={cn("flex-shrink-0 transition-all duration-300", !showPromptPanel && "w-8")}>
           <PromptComposer />
@@ -51,8 +52,8 @@ function AppContent() {
           <HistoryPanel />
         </div>
       </div>
-    </div>
-    <footer className="border-t border-gray-200 bg-white text-xs text-gray-500 px-4 py-3">
+  
+      <footer className="border-t border-gray-200 bg-white text-xs text-gray-500 px-4 py-3">
         <div>© 2025 EVERYSAN — Modified from NanoBananaEditor (AGPLv3)</div>
         <div className="mt-1">
           <a className="underline" href="https://github.com/EVERYSAN/dressup" target="_blank" rel="noreferrer">Source</a>
@@ -61,6 +62,7 @@ function AppContent() {
           {' · '}No warranty.
         </div>
       </footer>
+    </div>
   );
 
 }
