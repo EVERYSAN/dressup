@@ -52,6 +52,15 @@ function AppContent() {
         </div>
       </div>
     </div>
+    <footer className="border-t border-gray-200 bg-white text-xs text-gray-500 px-4 py-3">
+        <div>© 2025 EVERYSAN — Modified from NanoBananaEditor (AGPLv3)</div>
+        <div className="mt-1">
+          <a className="underline" href="https://github.com/EVERYSAN/dressup" target="_blank" rel="noreferrer">Source</a>
+          {' · '}
+          <a className="underline" href="/LICENSE" target="_blank" rel="noreferrer">License</a>
+          {' · '}No warranty.
+        </div>
+      </footer>
   );
 
 }
