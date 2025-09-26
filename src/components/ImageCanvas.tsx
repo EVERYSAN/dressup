@@ -179,19 +179,44 @@ export const ImageCanvas: React.FC = () => {
         <div className="flex items-center justify-between">
           {/* Left side - Zoom controls */}
           <div className="flex items-center space-x-2">
-            <Button variant="outline" size="sm" onClick={() => handleZoom(-0.1)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleZoom(-0.1)}
+              title="縮小"
+              aria-label="縮小 (Zoom out)"
+            >
               <ZoomOut className="h-4 w-4" />
+              <span className="hidden sm:inline ml-2 text-gray-800">Zoom −</span>
             </Button>
-            <span className="text-sm text-gray-600 min-w-[60px] text-center">
+          
+            <span className="text-sm text-gray-700 min-w-[60px] text-center">
               {Math.round(canvasZoom * 100)}%
             </span>
-            <Button variant="outline" size="sm" onClick={() => handleZoom(0.1)}>
+          
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleZoom(0.1)}
+              title="拡大"
+              aria-label="拡大 (Zoom in)"
+            >
               <ZoomIn className="h-4 w-4" />
+              <span className="hidden sm:inline ml-2 text-gray-800">Zoom ＋</span>
             </Button>
-            <Button variant="outline" size="sm" onClick={handleReset}>
+          
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleReset}
+              title="リセット"
+              aria-label="リセット (Reset view)"
+            >
               <RotateCcw className="h-4 w-4" />
+              <span className="hidden sm:inline ml-2 text-gray-800">Reset</span>
             </Button>
           </div>
+
 
           {/* Right side - Tools and actions */}
           <div className="flex items-center space-x-2">
