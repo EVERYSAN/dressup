@@ -248,7 +248,6 @@ export const ImageCanvas: React.FC = () => {
         {!image && !isGenerating && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center">
-              <div className="text-6xl mb-4">🍌</div>
               <h2 className="text-xl font-medium text-gray-300 mb-2">
                 Welcome to Nano Banana Framework
               </h2>
