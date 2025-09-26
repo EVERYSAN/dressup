@@ -33,7 +33,7 @@ export const PromptComposer: React.FC = () => {
     clearBrushStrokes,
   } = useAppStore();
 
-  // 生成／編集のフックを分離して利用
+  // ← 必ず“実行”して返り値を受け取る（() を忘れると A is not a function の原因）
   const { generate, isPending: isGenPending } = useImageGeneration();
   const { edit, isPending: isEditPending } = useImageEditing();
 
@@ -42,24 +42,38 @@ export const PromptComposer: React.FC = () => {
   const [showHintsModal, setShowHintsModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // 実行前に型チェック（開発時の保険）
+  const assertFn = (name: string, fn: any) => {
+    if (typeof fn !== 'function') {
+      console.error(`[DRESSUP] ${name} is not a function`, fn);
+      throw new TypeError(`${name} is not a function`);
+    }
+  };
+
   const handleGenerateOrEdit = async () => {
     const prompt = currentPrompt.trim();
     if (!prompt) return;
 
-    if (selectedTool === 'generate') {
-      // 参照画像: dataURL/純base64 どちらでもOK（サービス側で吸収）
-      const referenceImages = uploadedImages
-        .filter(img => img.includes('base64,'))
-        .map(img => img.split('base64,')[1]);
+    try {
+      if (selectedTool === 'generate') {
+        assertFn('generate', generate);
 
-      await generate({
-        prompt,
-        referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
-        // 必要なら model/temperature/seed をサービス側に渡す拡張も可
-      });
-    } else if (selectedTool === 'edit' || selectedTool === 'mask') {
-      // 編集は prompt のみ渡す（元画像と参照画像は hook 内で store から取得）
-      await edit(prompt);
+        // 参照画像: dataURL/純base64 どちらでもOK（サービス側で吸収）
+        const referenceImages = uploadedImages
+          .filter(img => img.includes('base64,'))
+          .map(img => img.split('base64,')[1]);
+
+        await generate({
+          prompt,
+          referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+        });
+      } else if (selectedTool === 'edit' || selectedTool === 'mask') {
+        assertFn('edit', edit);
+        // 編集は prompt のみ渡す（元画像と参照画像は hook 内で store から取得）
+        await edit(prompt);
+      }
+    } catch (e) {
+      console.error('[DRESSUP] handleGenerateOrEdit failed', e);
     }
   };
 
@@ -125,7 +139,7 @@ export const PromptComposer: React.FC = () => {
     );
   }
 
-  // 押下可能条件を明確化
+  // 押下可能条件（参照画像は任意。キャンバス画像＋プロンプトで有効）
   const hasPrompt = currentPrompt.trim().length > 0;
   const canGenerate = selectedTool === 'generate' && hasPrompt && !isGenPending;
   const canEdit = (selectedTool === 'edit' || selectedTool === 'mask') && hasPrompt && !!canvasImage && !isEditPending;
@@ -234,7 +248,7 @@ export const PromptComposer: React.FC = () => {
             className="min-h-[120px] resize-none"
           />
 
-          {/* Prompt Quality Indicator */}
+        {/* Prompt Quality Indicator */}
           <button onClick={() => setShowHintsModal(true)} className="mt-2 flex items-center text-xs hover:text-gray-400 transition-colors group">
             {currentPrompt.length < 20 ? (
               <HelpCircle className="h-3 w-3 mr-2 text-red-500 group-hover:text-red-400" />
