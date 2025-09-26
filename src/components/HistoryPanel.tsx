@@ -348,7 +348,7 @@ export const HistoryPanel: React.FC = () => {
         <Button 
           variant="outline" 
           size="sm" 
-          className="w-full"
+          className="w-full text-blue-600 hover:text-blue-800 border-blue-600 hover:border-blue-800"
           onClick={() => {
             // Find the currently displayed image (either generation or edit)
             let imageUrl: string | null = null;
