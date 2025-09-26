@@ -374,9 +374,9 @@ export const ImageCanvas: React.FC = () => {
           
           <div className="flex items-center space-x-2">
             <span className="text-xs text-gray-500">
-              © 2025 Mark Fulton - 
+              © 2025 EVERYSAN - 
               <a
-                href="https://www.reinventing.ai/"
+                href="https://note.com/everysan"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-yellow-400 hover:text-yellow-300 transition-colors ml-1"
