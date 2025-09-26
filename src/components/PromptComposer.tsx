@@ -76,14 +76,12 @@ export const PromptComposer: React.FC = () => {
       if (selectedTool === 'generate') {
         assertFn('generate', generate);
 
-        // 参照画像: dataURL/純base64 どちらでもOK（サービス側で吸収）
-        const referenceImages = uploadedImages
-          .filter(img => img.includes('base64,'))
-          .map(img => img.split('base64,')[1]);
+        // ★ サービス側（/api/generate）が dataURL を想定しているので、そのまま渡す
+        const referenceImages = uploadedImages.length > 0 ? uploadedImages : undefined;
 
         await generate({
           prompt,
-          referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+          referenceImages,
         });
       } else if (selectedTool === 'edit' || selectedTool === 'mask') {
         assertFn('edit', edit);
@@ -105,13 +103,20 @@ export const PromptComposer: React.FC = () => {
         console.log(`[DRESSUP] resized upload ~${mb.toFixed(2)} MB`);
 
         if (selectedTool === 'generate') {
-          // 参照画像（最大2）
-          if (uploadedImages.length < 2) addUploadedImage(dataUrl);
+          // 参照画像（最大2・重複防止）
+          if (!uploadedImages.includes(dataUrl) && uploadedImages.length < 2) {
+            addUploadedImage(dataUrl);
+          }
         } else if (selectedTool === 'edit') {
-          // スタイル参照（最大2）
-          if (editReferenceImages.length < 2) addEditReferenceImage(dataUrl);
-          // キャンバス未設定なら元画像としてセット
-          if (!canvasImage) setCanvasImage(dataUrl);
+          // ★ 最初の1枚は元画像としてのみセット（参照には入れない）
+          if (!canvasImage) {
+            setCanvasImage(dataUrl);
+          } else {
+            // 2枚目以降は参照に追加（重複防止 & 上限2）
+            if (!editReferenceImages.includes(dataUrl) && editReferenceImages.length < 2) {
+              addEditReferenceImage(dataUrl);
+            }
+          }
         } else if (selectedTool === 'mask') {
           // マスクモードは即キャンバスへ
           clearUploadedImages();
