@@ -112,7 +112,7 @@ export const PromptComposer: React.FC = () => {
 
   if (!showPromptPanel) {
     return (
-      <div className="w-8 bg-gray-950 border-r border-gray-800 flex flex-col items-center justify-center">
+      <div className="w-8 bg-gray-950 border-r border-gray-200 flex flex-col items-center justify-center">
         <button
           onClick={() => setShowPromptPanel(true)}
           className="w-6 h-16 bg-gray-800 hover:bg-gray-700 rounded-r-lg border border-l-0 border-gray-700 flex items-center justify-center transition-colors group"
@@ -130,7 +130,7 @@ export const PromptComposer: React.FC = () => {
 
   return (
     <>
-    <div className="w-80 lg:w-72 xl:w-80 h-full bg-gray-950 border-r border-gray-800 p-6 flex flex-col space-y-6 overflow-y-auto">
+    <div className="w-80 lg:w-72 xl:w-80 h-full bg-gray-950 border-r border-gray-200 p-6 flex flex-col space-y-6 overflow-y-auto">
       <div>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-medium text-gray-300">Mode</h3>
@@ -223,11 +223,11 @@ export const PromptComposer: React.FC = () => {
                   />
                   <button
                     onClick={() => selectedTool === 'generate' ? removeUploadedImage(index) : removeEditReferenceImage(index)}
-                    className="absolute top-1 right-1 bg-gray-900/80 text-gray-400 hover:text-gray-200 rounded-full p-1 transition-colors"
+                    className="absolute top-1 right-1 bg-white/80 text-gray-400 hover:text-gray-200 rounded-full p-1 transition-colors"
                   >
                     ×
                   </button>
-                  <div className="absolute bottom-1 left-1 bg-gray-900/80 text-xs px-2 py-1 rounded text-gray-300">
+                  <div className="absolute bottom-1 left-1 bg-white/80 text-xs px-2 py-1 rounded text-gray-300">
                     Ref {index + 1}
                   </div>
                 </div>
@@ -365,7 +365,7 @@ export const PromptComposer: React.FC = () => {
                 value={seed || ''}
                 onChange={(e) => setSeed(e.target.value ? parseInt(e.target.value) : null)}
                 placeholder="Random"
-                className="w-full h-8 px-2 bg-gray-900 border border-gray-700 rounded text-xs text-gray-100"
+                className="w-full h-8 px-2 bg-white border border-gray-700 rounded text-xs text-gray-900"
               />
             </div>
           </div>
@@ -373,7 +373,7 @@ export const PromptComposer: React.FC = () => {
       </div>
 
       {/* Keyboard Shortcuts */}
-      <div className="pt-4 border-t border-gray-800">
+      <div className="pt-4 border-t border-gray-200">
         <h4 className="text-xs font-medium text-gray-400 mb-2">Shortcuts</h4>
         <div className="space-y-1 text-xs text-gray-500">
           <div className="flex justify-between">
