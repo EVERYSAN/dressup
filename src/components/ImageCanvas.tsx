@@ -179,44 +179,19 @@ export const ImageCanvas: React.FC = () => {
         <div className="flex items-center justify-between">
           {/* Left side - Zoom controls */}
           <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleZoom(-0.1)}
-              title="縮小"
-              aria-label="縮小 (Zoom out)"
-            >
+            <Button variant="outline" size="sm" onClick={() => handleZoom(-0.1)}>
               <ZoomOut className="h-4 w-4" />
-              <span className="hidden sm:inline ml-2 text-gray-800"></span>
             </Button>
-          
-            <span className="text-sm text-gray-700 min-w-[60px] text-center">
+            <span className="text-sm text-gray-600 min-w-[60px] text-center">
               {Math.round(canvasZoom * 100)}%
             </span>
-          
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleZoom(0.1)}
-              title="拡大"
-              aria-label="拡大 (Zoom in)"
-            >
+            <Button variant="outline" size="sm" onClick={() => handleZoom(0.1)}>
               <ZoomIn className="h-4 w-4" />
-              <span className="hidden sm:inline ml-2 text-gray-800"></span>
             </Button>
-          
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleReset}
-              title="リセット"
-              aria-label="リセット (Reset view)"
-            >
+            <Button variant="outline" size="sm" onClick={handleReset}>
               <RotateCcw className="h-4 w-4" />
-              <span className="hidden sm:inline ml-2 text-gray-800"></span>
             </Button>
           </div>
-
 
           {/* Right side - Tools and actions */}
           <div className="flex items-center space-x-2">
@@ -252,7 +227,7 @@ export const ImageCanvas: React.FC = () => {
               className={cn(showMasks && 'bg-yellow-400/10 border-yellow-400/50')}
             >
               {showMasks ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-              <span className="hidden sm:inline ml-2 text-gray-800">Masks</span>
+              <span className="hidden sm:inline ml-2">Masks</span>
             </Button>
             
             {canvasImage && (
