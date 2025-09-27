@@ -118,19 +118,6 @@ export const ImageCanvas: React.FC = () => {
     return pos;
   };
 
-  // ---- マスク描画 ----
-  const handleMouseDown = () => {
-    if (selectedTool !== 'mask' || !image) return;
-    const pos = getRelativePointerSafe();
-    if (!pos) return;
-
-    const rx = pos.x - imageOffset.x;
-    const ry = pos.y - imageOffset.y;
-    if (rx >= 0 && rx <= image.width && ry >= 0 && ry <= image.height) {
-      setIsDrawing(true);
-      setCurrentStroke([rx, ry]);
-    }
-  };
 
   const handleMouseMove = () => {
     if (!isDrawing || selectedTool !== 'mask' || !image) return;
@@ -259,7 +246,7 @@ export const ImageCanvas: React.FC = () => {
                 DRESSUP へようこそ
               </h2>
               <p className="mt-2 text-sm text-gray-600 text-center">
-                3分で使い始められます。左の「Upload」からどうぞ。
+                3分で使い始められます。左の「編集」からどうぞ。
               </p>
               <ol className="mt-6 space-y-4 text-gray-800">
                 <li className="flex gap-3">
@@ -283,9 +270,6 @@ export const ImageCanvas: React.FC = () => {
                   </div>
                 </li>
               </ol>
-              <p className="mt-6 text-center text-xs text-gray-500">
-                ヒント：上部の <span className="font-medium">マスク</span> で部分指定ができます
-              </p>
             </div>
           </div>
         )}
