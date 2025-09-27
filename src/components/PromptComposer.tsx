@@ -268,17 +268,22 @@ export const PromptComposer: React.FC = () => {
         <Button
           onClick={handleApplyEdit}
           disabled={!canEdit}
-          className="w-full h-14 text-base font-medium bg-emerald-600 hover:bg-emerald-700 text-white disabled:bg-emerald-300 disabled:cursor-not-allowed"
+          className="group w-full h-14 text-base font-semibold tracking-wide
+                     text-white bg-emerald-600 hover:bg-emerald-700
+                     disabled:bg-white disabled:text-emerald-800
+                     disabled:border disabled:border-emerald-400
+                     disabled:shadow-none disabled:hover:bg-white disabled:hover:text-emerald-800
+                     disabled:cursor-not-allowed"
         >
 
           {isEditPending ? (
             <>
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/80 mr-2" />
+              <div className="animate-spin rounded-full h-4 w-4 mr-2 group-disabled:text-emerald-700" />
               Applying...
             </>
           ) : (
             <>
-              <Edit3 className="h-4 w-4 mr-2" />
+              <Edit3 className="h-4 w-4 mr-2 group-disabled:text-emerald-700" />
               Apply Edit
             </>
           )}
