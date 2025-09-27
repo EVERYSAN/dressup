@@ -57,7 +57,7 @@ const toInt = (v: unknown, fb: number) => Math.trunc(toNum(v, fb));
 const toBool = (v: unknown, fb = false) =>
   typeof v === 'boolean' ? v : v === 'true' ? true : v === 'false' ? false : fb;
 
-// ← ここがポイント：undefined/null/非文字列でも安全に空文字へ、かつ trim
+// 文字列を「必ず空文字にしてから trim」する安全関数
 const safeStr = (v: unknown): string =>
   typeof v === 'string' ? v.trim() : v == null ? '' : String(v).trim();
 
@@ -68,37 +68,34 @@ const sanitizePan = (p: any): Pan => ({
 
 /* ========= Store shape ========= */
 export type AppState = {
-  // ---- Panels (Left/Right) ----
-  sidebarOpen: boolean; // left (new)
+  // ---- Panels ----
+  sidebarOpen: boolean;
   setSidebarOpen: (v: boolean) => void;
-  rightPanelOpen: boolean; // right (new)
+  rightPanelOpen: boolean;
   setRightPanelOpen: (v: boolean) => void;
 
-  // Backward-compat aliases
+  // Backward-compat aliases（既存コード互換）
   editorOpen: boolean;
   setEditorOpen: (v: boolean) => void;
   isEditorOpen: boolean;
   setIsEditorOpen: (v: boolean) => void;
-
   historyOpen: boolean;
   setHistoryOpen: (v: boolean) => void;
   isHistoryOpen: boolean;
   setIsHistoryOpen: (v: boolean) => void;
-
-  // Legacy names used by App.tsx
-  showPromptPanel: boolean;
+  showPromptPanel: boolean; // legacy from App.tsx
   setShowPromptPanel: (v: boolean) => void;
-  showHistory: boolean;
+  showHistory: boolean; // legacy from App.tsx
   setShowHistory: (v: boolean) => void;
 
-  leftPanelWidth: number; // px
-  rightPanelWidth: number; // px
+  leftPanelWidth: number;
   setLeftPanelWidth: (px: number) => void;
+  rightPanelWidth: number;
   setRightPanelWidth: (px: number) => void;
 
   // ---- Canvas / View ----
-  canvasImage: string | null; // base image
-  refImage: string | null; // reference image
+  canvasImage: string | null;
+  refImage: string | null;
   setCanvasImage: (src: string | null) => void;
   setRefImage: (src: string | null) => void;
 
@@ -120,8 +117,15 @@ export type AppState = {
   clearBrushStrokes: () => void;
 
   // ---- Prompts / Params ----
-  instruction: string;
+  // 重要：互換のため、currentPrompt / prompt / instruction をすべて持ち、同期する
+  currentPrompt: string;
+  setCurrentPrompt: (v: string) => void;
+  prompt: string; // alias
+  setPrompt: (v: string) => void;
+
+  instruction: string; // alias to currentPrompt
   setInstruction: (v: string) => void;
+
   negativePrompt: string;
   setNegativePrompt: (v: string) => void;
 
@@ -142,7 +146,7 @@ export type AppState = {
   // ---- Generation flow ----
   isGenerating: boolean;
   setIsGenerating: (v: boolean) => void;
-  progress: number; // 0–1
+  progress: number;
   setProgress: (p: number) => void;
   lastError: string | null;
   setLastError: (m: string | null) => void;
@@ -171,7 +175,7 @@ export type AppState = {
 export const useAppStore = create<AppState>()(
   persist(
     devtools((set, get) => ({
-      // ---- Panels ----
+      // ---- Panels (初期は開) ----
       sidebarOpen: true,
       setSidebarOpen: (v) =>
         set({
@@ -190,7 +194,6 @@ export const useAppStore = create<AppState>()(
           showHistory: !!v,
         }),
 
-      // Aliases
       editorOpen: true,
       setEditorOpen: (v) =>
         set({
@@ -199,7 +202,6 @@ export const useAppStore = create<AppState>()(
           isEditorOpen: !!v,
           showPromptPanel: !!v,
         }),
-
       isEditorOpen: true,
       setIsEditorOpen: (v) =>
         set({
@@ -217,7 +219,6 @@ export const useAppStore = create<AppState>()(
           isHistoryOpen: !!v,
           showHistory: !!v,
         }),
-
       isHistoryOpen: true,
       setIsHistoryOpen: (v) =>
         set({
@@ -227,7 +228,6 @@ export const useAppStore = create<AppState>()(
           showHistory: !!v,
         }),
 
-      // Legacy names used by App.tsx
       showPromptPanel: true,
       setShowPromptPanel: (v) =>
         set({
@@ -246,9 +246,11 @@ export const useAppStore = create<AppState>()(
         }),
 
       leftPanelWidth: 288,
+      setLeftPanelWidth: (px) =>
+        set({ leftPanelWidth: clamp(toInt(px, 288), 160, 480) }),
       rightPanelWidth: 320,
-      setLeftPanelWidth: (px) => set({ leftPanelWidth: clamp(toInt(px, 288), 160, 480) }),
-      setRightPanelWidth: (px) => set({ rightPanelWidth: clamp(toInt(px, 320), 160, 560) }),
+      setRightPanelWidth: (px) =>
+        set({ rightPanelWidth: clamp(toInt(px, 320), 160, 560) }),
 
       // ---- Canvas / View ----
       canvasImage: null,
@@ -274,10 +276,25 @@ export const useAppStore = create<AppState>()(
       clearBrushStrokes: () => set({ brushStrokes: [] }),
 
       // ---- Prompts / Params ----
+      // ここが肝：3つの名前を相互同期し、常に空文字で保持
+      currentPrompt: '',
+      setCurrentPrompt: (v) => {
+        const s = safeStr(v);
+        set({ currentPrompt: s, prompt: s, instruction: s });
+      },
+      prompt: '',
+      setPrompt: (v) => {
+        const s = safeStr(v);
+        set({ currentPrompt: s, prompt: s, instruction: s });
+      },
       instruction: '',
-      setInstruction: (v) => set({ instruction: safeStr(v) }), // ← trim 安全
+      setInstruction: (v) => {
+        const s = safeStr(v);
+        set({ currentPrompt: s, prompt: s, instruction: s });
+      },
+
       negativePrompt: '',
-      setNegativePrompt: (v) => set({ negativePrompt: safeStr(v) }), // ← trim 安全
+      setNegativePrompt: (v) => set({ negativePrompt: safeStr(v) }),
 
       cfgScale: 7,
       setCfgScale: (v) => set({ cfgScale: clamp(toNum(v, 7), 0, 30) }),
@@ -351,13 +368,13 @@ export const useAppStore = create<AppState>()(
     })),
     {
       name: 'dressup-store',
-      version: 8,
-      // Coerce types + ensure strings are trimmed and non-undefined
+      version: 9,
+      // 強制マイグレーション：文字列は必ず空文字化＋trim、パネルは基本 open
       migrate: (persisted) => {
         try {
           const st = (persisted as any)?.state ?? {};
 
-          // Panels (default open)
+          // Panels
           const leftOpen =
             toBool(st.sidebarOpen, true) ||
             toBool(st.editorOpen, true) ||
@@ -385,12 +402,13 @@ export const useAppStore = create<AppState>()(
           st.canvasZoom = clamp(toNum(st.canvasZoom, 1), 0.1, 3);
           st.canvasPan = sanitizePan(st.canvasPan ?? { x: 0, y: 0 });
 
-          // Mask
-          st.showMasks = toBool(st.showMasks, false);
-          st.brushSize = clamp(toNum(st.brushSize, 12), 1, 200);
+          // Strings（ここが重要）
+          // 旧来は instruction / currentPrompt / prompt のいずれかを使っていた想定
+          const mergedPrompt = safeStr(st.currentPrompt ?? st.prompt ?? st.instruction ?? '');
+          st.currentPrompt = mergedPrompt;
+          st.prompt = mergedPrompt;
+          st.instruction = mergedPrompt;
 
-          // Strings must never be undefined and should be trimmed
-          st.instruction = safeStr(st.instruction);
           st.negativePrompt = safeStr(st.negativePrompt);
 
           // Params
@@ -409,10 +427,10 @@ export const useAppStore = create<AppState>()(
 
           return { ...persisted, state: st };
         } catch {
-          return { version: 8, state: undefined } as any;
+          return { version: 9, state: undefined } as any;
         }
       },
-      // Persist only what you need
+      // 必要なものだけ保存（文字列も含めておく）
       partialize: (st) => ({
         // Panels
         sidebarOpen: st.sidebarOpen,
@@ -438,7 +456,9 @@ export const useAppStore = create<AppState>()(
         brushSize: st.brushSize,
         brushStrokes: st.brushStrokes,
 
-        // Params (strings included to keep them trimmed)
+        // Prompts / Params
+        currentPrompt: st.currentPrompt,
+        prompt: st.prompt,
         instruction: st.instruction,
         negativePrompt: st.negativePrompt,
         cfgScale: st.cfgScale,
