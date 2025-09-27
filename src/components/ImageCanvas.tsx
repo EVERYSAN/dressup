@@ -6,6 +6,8 @@ import { Button } from './ui/Button';
 import { ZoomIn, ZoomOut, RotateCcw, Download, Eye, EyeOff, Eraser } from 'lucide-react';
 import { cn } from '../utils/cn';
 
+const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+
 export const ImageCanvas: React.FC = () => {
   const {
     canvasImage,
@@ -40,6 +42,11 @@ export const ImageCanvas: React.FC = () => {
   const [currentStroke, setCurrentStroke] = useState<number[]>([]);
   const lastFittedSrcRef = useRef<string | null>(null); // 画像が変わった時だけオートフィット
 
+  // ピンチ用
+  const pinchStartDistRef = useRef<number | null>(null);
+  const pinchStartZoomRef = useRef<number>(1);
+  const pinchCenterRef = useRef<{ x: number; y: number } | null>(null);
+
   // ---- ステージサイズ追従（ResizeObserver で確実に）----
   useEffect(() => {
     const el = containerRef.current;
@@ -68,24 +75,45 @@ export const ImageCanvas: React.FC = () => {
     return { x, y };
   }, [image, stageSize, z]);
 
+  // ---- “その場”ズーム：point はステージ座標 ----
+  const zoomAt = (point: { x: number; y: number }, nextZoom: number) => {
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    const newZ = clamp(nextZoom, 0.1, 3);
+
+    // ズーム前のステージの平行移動量（パンはズームの倍率分だけ適用される）
+    // point をスクリーン中央に保つようにパンを調整
+    const mousePointTo = {
+      x: (point.x - pan.x * z) / z,
+      y: (point.y - pan.y * z) / z,
+    };
+
+    const newPan = {
+      x: point.x / newZ - mousePointTo.x,
+      y: point.y / newZ - mousePointTo.y,
+    };
+
+    setCanvasZoom(newZ);
+    setCanvasPan(newPan);
+  };
+
   // ---- オートフィット helper ----
   const fitToStage = (img: HTMLImageElement) => {
     const W = stageSize.width;
     const H = stageSize.height;
     if (W <= 0 || H <= 0) return;
 
-    // 画像がステージに収まる最大倍率（<= 1 を想定）を算出
-    // 余白のため padding を少し引く
-    const isMobile = window.innerWidth < 768;
-    const padding = isMobile ? 0.9 : 0.88; // 少し余白
+    // 画像がステージに収まる最大倍率を算出
+    // 初期表示では「拡大しない」ため 1 を上限にする（<= 100%）
+    const padding = 0.92; // 余白
     const scaleX = (W * padding) / img.width;
     const scaleY = (H * padding) / img.height;
     const fit = Math.min(scaleX, scaleY);
+    const notZoomIn = Math.min(1, fit); // ここがポイント（モバイルで巨大化しない）
 
-    // 上限下限でクランプ：ズーム UI との相性考慮（0.1〜3）
-    const clamped = Math.max(0.1, Math.min(3, fit));
-
-    setCanvasZoom(Number.isFinite(clamped) && clamped > 0 ? clamped : 1);
+    const clamped = clamp(notZoomIn, 0.1, 3);
+    setCanvasZoom(clamped);
     setCanvasPan({ x: 0, y: 0 });
   };
 
@@ -107,7 +135,7 @@ export const ImageCanvas: React.FC = () => {
       }
     };
     img.src = canvasImage;
-  }, [canvasImage, stageSize.width, stageSize.height]); // ステージサイズが変わったタイミングでも最新画像でフィット可能
+  }, [canvasImage, stageSize.width, stageSize.height]);
 
   // ---- マウス座標 helper ----
   const getRelativePointerSafe = () => {
@@ -117,19 +145,20 @@ export const ImageCanvas: React.FC = () => {
     if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') return null;
     return pos;
   };
-  
+
+  // ---- マスク描画 ----
   const handleMouseDown = () => {
-      if (selectedTool !== 'mask' || !image) return;
-      const pos = getRelativePointerSafe();
-      if (!pos) return;
-  
-      const rx = pos.x - imageOffset.x;
-      const ry = pos.y - imageOffset.y;
-      if (rx >= 0 && rx <= image.width && ry >= 0 && ry <= image.height) {
-        setIsDrawing(true);
-        setCurrentStroke([rx, ry]);
-      }
-    };
+    if (selectedTool !== 'mask' || !image) return;
+    const pos = getRelativePointerSafe();
+    if (!pos) return;
+
+    const rx = pos.x - imageOffset.x;
+    const ry = pos.y - imageOffset.y;
+    if (rx >= 0 && rx <= image.width && ry >= 0 && ry <= image.height) {
+      setIsDrawing(true);
+      setCurrentStroke([rx, ry]);
+    }
+  };
 
   const handleMouseMove = () => {
     if (!isDrawing || selectedTool !== 'mask' || !image) return;
@@ -156,10 +185,12 @@ export const ImageCanvas: React.FC = () => {
     setCurrentStroke([]);
   };
 
-  // ---- ズーム & リセット ----
-  const handleZoom = (delta: number) => {
-    const newZoom = Math.max(0.1, Math.min(3, z + delta));
-    setCanvasZoom(newZoom);
+  // ---- ズーム（ボタン） ----
+  const handleZoomButton = (delta: number) => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const center = { x: stageSize.width / 2, y: stageSize.height / 2 };
+    zoomAt(center, z + delta);
   };
 
   const handleReset = () => {
@@ -183,19 +214,67 @@ export const ImageCanvas: React.FC = () => {
   const panX = pan.x * z;
   const panY = pan.y * z;
 
+  // ---- ホイールズーム（PC / トラックパッド）----
+  const handleWheel = (e: any) => {
+    e.evt.preventDefault();
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return;
+
+    // deltaY 正で縮小、負で拡大（一般的な操作感）
+    const direction = e.evt.deltaY > 0 ? -0.1 : 0.1;
+    zoomAt(pointer, z + direction);
+  };
+
+  // ---- ピンチズーム（スマホ）----
+  const handleTouchStart = (e: any) => {
+    if (e.evt.touches?.length === 2) {
+      const [t1, t2] = e.evt.touches;
+      const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      pinchStartDistRef.current = dist;
+      pinchStartZoomRef.current = z;
+
+      const stage = stageRef.current;
+      if (stage) {
+        const rect = stage.container().getBoundingClientRect();
+        const cx = (t1.clientX + t2.clientX) / 2 - rect.left;
+        const cy = (t1.clientY + t2.clientY) / 2 - rect.top;
+        pinchCenterRef.current = { x: cx, y: cy };
+      }
+    }
+  };
+
+  const handleTouchMove = (e: any) => {
+    if (e.evt.touches?.length === 2 && pinchStartDistRef.current && pinchCenterRef.current) {
+      e.evt.preventDefault();
+      const [t1, t2] = e.evt.touches;
+      const newDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      const scale = newDist / pinchStartDistRef.current;
+      const next = clamp(pinchStartZoomRef.current * scale, 0.1, 3);
+      zoomAt(pinchCenterRef.current, next);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    pinchStartDistRef.current = null;
+    pinchCenterRef.current = null;
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
       <div className="p-3 border-b border-gray-200 bg-white">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <Button variant="outline" size="sm" onClick={() => handleZoom(-0.1)}>
+            <Button variant="outline" size="sm" onClick={() => handleZoomButton(-0.1)}>
               <ZoomOut className="h-4 w-4" />
             </Button>
             <span className="text-sm text-gray-600 min-w-[60px] text-center">
               {Math.round(z * 100)}%
             </span>
-            <Button variant="outline" size="sm" onClick={() => handleZoom(0.1)}>
+            <Button variant="outline" size="sm" onClick={() => handleZoomButton(0.1)}>
               <ZoomIn className="h-4 w-4" />
             </Button>
             <Button variant="outline" size="sm" onClick={handleReset}>
@@ -310,6 +389,10 @@ export const ImageCanvas: React.FC = () => {
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
+          onWheel={handleWheel}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
           style={{ cursor: selectedTool === 'mask' ? 'crosshair' : 'default' }}
         >
           <Layer>
