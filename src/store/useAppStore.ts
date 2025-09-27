@@ -29,37 +29,32 @@ export type ProjectState = {
   edits: EditItem[];
 };
 
-// ===== マスク（今は非活性だが型は保持） =====
+// ===== マスク（現在は未使用でも型は保持） =====
 export type BrushStroke = {
   id: string;
-  points: number[];     // [x1,y1,x2,y2,...]
+  points: number[]; // [x1,y1,x2,y2,...]
   brushSize: number;
 };
 
 type CanvasPan = { x: number; y: number };
 
-// ===== ストア =====
+// ===== ストア型 =====
 type AppState = {
-  // Prompt / モード
+  // 固定モード：Editのみ
+  selectedTool: 'edit';
+
+  // Prompt
   currentPrompt: string;
   setCurrentPrompt: (v: string) => void;
 
-  selectedTool: 'generate' | 'edit';
-  setSelectedTool: (v: 'generate' | 'edit') => void;
-
+  // 生成パラメータ（モデル側に渡す想定）
   temperature: number;
   setTemperature: (v: number) => void;
 
   seed: number | null;
   setSeed: (v: number | null) => void;
 
-  // 生成用アップロード
-  uploadedImages: string[];
-  addUploadedImage: (dataUrl: string) => void;
-  removeUploadedImage: (index: number) => void;
-  clearUploadedImages: () => void;
-
-  // 編集用アップロード（BASE は PromptComposer 側で管理）
+  // 編集用アップロード（Baseは各コンポーネントで保持、ここはRefのみ）
   editReferenceImages: string[];
   addEditReferenceImage: (dataUrl: string) => void;
   removeEditReferenceImage: (index: number) => void;
@@ -89,8 +84,7 @@ type AppState = {
   // ===== 履歴管理 =====
   currentProject: ProjectState | null;
   ensureProject: () => void;
-
-  addGeneration: (g: GenerationItem) => void;
+  addGeneration: (g: GenerationItem) => void; // 将来の拡張用（今は未使用でも保持）
   addEdit: (e: EditItem) => void;
 
   selectedGenerationId: string | null;
@@ -105,24 +99,16 @@ type AppState = {
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
-      // ---- 初期値 ----
+      selectedTool: 'edit',
+
       currentPrompt: '',
       setCurrentPrompt: (v) => set({ currentPrompt: v }),
-
-      selectedTool: 'edit',
-      setSelectedTool: (v) => set({ selectedTool: v }),
 
       temperature: 0.7,
       setTemperature: (v) => set({ temperature: v }),
 
       seed: null,
       setSeed: (v) => set({ seed: v }),
-
-      uploadedImages: [],
-      addUploadedImage: (u) => set((s) => ({ uploadedImages: [...s.uploadedImages, u] })),
-      removeUploadedImage: (idx) =>
-        set((s) => ({ uploadedImages: s.uploadedImages.filter((_, i) => i !== idx) })),
-      clearUploadedImages: () => set({ uploadedImages: [] }),
 
       editReferenceImages: [],
       addEditReferenceImage: (u) => set((s) => ({ editReferenceImages: [...s.editReferenceImages, u] })),
@@ -153,17 +139,13 @@ export const useAppStore = create<AppState>()(
       ensureProject: () => {
         const s = get();
         if (!s.currentProject) {
-          set({
-            currentProject: { id: `proj-${Date.now()}`, generations: [], edits: [] },
-          });
+          set({ currentProject: { id: `proj-${Date.now()}`, generations: [], edits: [] } });
         }
       },
 
       addGeneration: (g) => {
         const s = get();
-        if (!s.currentProject) {
-          s.ensureProject();
-        }
+        if (!s.currentProject) s.ensureProject();
         set((st) => ({
           currentProject: st.currentProject
             ? { ...st.currentProject, generations: [g, ...st.currentProject.generations] }
@@ -173,9 +155,7 @@ export const useAppStore = create<AppState>()(
 
       addEdit: (e) => {
         const s = get();
-        if (!s.currentProject) {
-          s.ensureProject();
-        }
+        if (!s.currentProject) s.ensureProject();
         set((st) => ({
           currentProject: st.currentProject
             ? { ...st.currentProject, edits: [e, ...st.currentProject.edits] }
@@ -192,12 +172,10 @@ export const useAppStore = create<AppState>()(
       setShowHistory: (v) => set({ showHistory: v }),
     }),
     {
-      name: 'dressup-app-store', // LocalStorage key
+      name: 'dressup-app-store-edit-only',
       partialize: (state) => ({
-        // 永続化したいものだけ
         temperature: state.temperature,
         seed: state.seed,
-        uploadedImages: state.uploadedImages,
         editReferenceImages: state.editReferenceImages,
         currentProject: state.currentProject,
         showHistory: state.showHistory,
