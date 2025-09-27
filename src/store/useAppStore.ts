@@ -1,3 +1,10 @@
+// src/store/useAppStore.ts
+import { create } from 'zustand';
+import { v4 as uuidv4 } from 'uuid';
+
+type Asset = { id: string; url: string };
+type GenParams = { seed?: number | null; temperature?: number | null };
+
 // ---- 追記: 型（ファイル先頭の import 群の下など）------------------
 export type OutputAsset = { id: string; url: string };
 
@@ -24,60 +31,193 @@ export type ProjectState = {
   id: string;
   generations: GenerationItem[];
   edits: EditItem[];
+};// ---- 追記: 型（ファイル先頭の import 群の下など）------------------
+export type OutputAsset = { id: string; url: string };
+
+export type GenerationItem = {
+  id: string;
+  prompt: string;
+  modelVersion: string;
+  parameters?: { seed?: number | null };
+  sourceAssets: OutputAsset[];
+  outputAssets: OutputAsset[];
+  timestamp: number;
 };
-// -------------------------------------------------------------------
 
+export type EditItem = {
+  id: string;
+  instruction: string;
+  parentGenerationId?: string | null;
+  maskReferenceAsset?: OutputAsset | null;
+  outputAssets: OutputAsset[];
+  timestamp: number;
+};
 
-// ---- 追記: create(...) の state に追加 ------------------------------
-currentProject: null as ProjectState | null,
+export type ProjectState = {
+  id: string;
+  generations: GenerationItem[];
+  edits: EditItem[];
+};
 
-selectedGenerationId: null as string | null,
-selectedEditId: null as string | null,
+export type Generation = {
+  id: string;
+  prompt: string;
+  modelVersion: string;
+  timestamp: number;
+  sourceAssets: Asset[];   // 参照画像
+  outputAssets: Asset[];   // 生成結果（1枚想定）
+  parameters: GenParams;
+};
 
-showHistory: true,
-// -------------------------------------------------------------------
+export type EditEntry = {
+  id: string;
+  instruction: string;
+  timestamp: number;
+  parentGenerationId?: string | null;
+  outputAssets: Asset[];
+  maskAssetId?: string | null;
+  maskReferenceAsset?: Asset | null;
+};
 
+type Project = {
+  id: string;
+  generations: Generation[];
+  edits: EditEntry[];
+};
 
-// ---- 追記: actions を追加 ------------------------------------------
-ensureProject: () => {
-  const s = get();
-  if (!s.currentProject) {
-    set({
-      currentProject: {
-        id: `proj-${Date.now()}`,
-        generations: [],
-        edits: [],
-      },
+type State = {
+  // 左パネル
+  currentPrompt: string;
+  selectedTool: 'generate' | 'edit';
+  temperature: number;
+  seed: number | null;
+
+  uploadedImages: string[];       // generate 用参照
+  editReferenceImages: string[];  // edit 用参照
+  canvasImage: string | null;     // 中央の最新1枚
+
+  // パネル表示状態
+  showPromptPanel: boolean;
+  showHistory: boolean;
+
+  // History / Session
+  sessionId: string;
+  currentProject: Project | null;
+  selectedGenerationId: string | null;
+  selectedEditId: string | null;
+
+  // setters / actions
+  setCurrentPrompt: (v: string) => void;
+  setSelectedTool: (t: State['selectedTool']) => void;
+  setTemperature: (t: number) => void;
+  setSeed: (s: number | null) => void;
+
+  addUploadedImage: (d: string) => void;
+  removeUploadedImage: (i: number) => void;
+  clearUploadedImages: () => void;
+
+  addEditReferenceImage: (d: string) => void;
+  removeEditReferenceImage: (i: number) => void;
+  clearEditReferenceImages: () => void;
+
+  setCanvasImage: (d: string | null) => void;
+
+  setShowPromptPanel: (b: boolean) => void;
+  setShowHistory: (b: boolean) => void;
+
+  clearBrushStrokes: () => void; // そのまま残し
+
+  // History:
+  ensureProject: () => void;
+  addGeneration: (g: Omit<Generation, 'id'|'timestamp'>) => Generation;
+  addEdit: (e: Omit<EditEntry, 'id'|'timestamp'>) => EditEntry;
+  selectGeneration: (id: string | null) => void;
+  selectEdit: (id: string | null) => void;
+  clearHistory: () => void;
+};
+
+export const useAppStore = create<State>((set, get) => ({
+  currentPrompt: '',
+  selectedTool: 'generate',
+  temperature: 0.7,
+  seed: null,
+
+  uploadedImages: [],
+  editReferenceImages: [],
+  canvasImage: null,
+
+  showPromptPanel: true,
+  showHistory: true,
+
+  sessionId: uuidv4(),
+  currentProject: { id: uuidv4(), generations: [], edits: [] },
+  selectedGenerationId: null,
+  selectedEditId: null,
+
+  setCurrentPrompt: (v) => set({ currentPrompt: v }),
+  setSelectedTool: (t) => set({ selectedTool: t }),
+  setTemperature: (t) => set({ temperature: t }),
+  setSeed: (s) => set({ seed: s }),
+
+  addUploadedImage: (d) => set((s) => ({ uploadedImages: [...s.uploadedImages, d].slice(0, 2) })),
+  removeUploadedImage: (i) => set((s) => ({ uploadedImages: s.uploadedImages.filter((_, idx) => idx !== i) })),
+  clearUploadedImages: () => set({ uploadedImages: [] }),
+
+  addEditReferenceImage: (d) => set((s) => ({ editReferenceImages: [...s.editReferenceImages, d].slice(0, 2) })),
+  removeEditReferenceImage: (i) => set((s) => ({ editReferenceImages: s.editReferenceImages.filter((_, idx) => idx !== i) })),
+  clearEditReferenceImages: () => set({ editReferenceImages: [] }),
+
+  setCanvasImage: (d) => set({ canvasImage: d }),
+
+  setShowPromptPanel: (b) => set({ showPromptPanel: b }),
+  setShowHistory: (b) => set({ showHistory: b }),
+
+  clearBrushStrokes: () => {},
+
+  ensureProject: () => {
+    if (!get().currentProject) set({ currentProject: { id: uuidv4(), generations: [], edits: [] } });
+  },
+
+  addGeneration: (g) => {
+    const gen: Generation = {
+      id: uuidv4(),
+      timestamp: Date.now(),
+      ...g,
+    };
+    set((s) => {
+      const p = s.currentProject ?? { id: uuidv4(), generations: [], edits: [] };
+      return {
+        currentProject: { ...p, generations: [...p.generations, gen] },
+        selectedGenerationId: gen.id,
+        selectedEditId: null,
+      };
     });
-  }
-},
+    return gen;
+  },
 
-addGeneration: (g: GenerationItem) => {
-  const s = get();
-  if (!s.currentProject) {
-    get().ensureProject();
-  }
-  set((st) => ({
-    currentProject: st.currentProject
-      ? { ...st.currentProject, generations: [g, ...st.currentProject.generations] }
-      : { id: `proj-${Date.now()}`, generations: [g], edits: [] },
-  }));
-},
+  addEdit: (e) => {
+    const ed: EditEntry = {
+      id: uuidv4(),
+      timestamp: Date.now(),
+      ...e,
+    };
+    set((s) => {
+      const p = s.currentProject ?? { id: uuidv4(), generations: [], edits: [] };
+      return {
+        currentProject: { ...p, edits: [...p.edits, ed] },
+        selectedEditId: ed.id,
+        selectedGenerationId: null,
+      };
+    });
+    return ed;
+  },
 
-addEdit: (e: EditItem) => {
-  const s = get();
-  if (!s.currentProject) {
-    get().ensureProject();
-  }
-  set((st) => ({
-    currentProject: st.currentProject
-      ? { ...st.currentProject, edits: [e, ...st.currentProject.edits] }
-      : { id: `proj-${Date.now()}`, generations: [], edits: [e] },
-  }));
-},
+  selectGeneration: (id) => set({ selectedGenerationId: id, selectedEditId: null }),
+  selectEdit: (id) => set({ selectedEditId: id, selectedGenerationId: null }),
 
-selectGeneration: (id: string | null) => set({ selectedGenerationId: id, selectedEditId: null }),
-selectEdit: (id: string | null) => set({ selectedEditId: id, selectedGenerationId: null }),
-
-setShowHistory: (v: boolean) => set({ showHistory: v }),
-// -------------------------------------------------------------------
+  clearHistory: () => set((s) => ({
+    currentProject: s.currentProject ? { ...s.currentProject, generations: [], edits: [] } : s.currentProject,
+    selectedEditId: null,
+    selectedGenerationId: null,
+  })),
+}));
