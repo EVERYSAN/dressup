@@ -33,7 +33,6 @@ export const PromptComposer: React.FC = () => {
     clearBrushStrokes,
   } = useAppStore();
 
-  // Hook は必ず実行して返り値を受け取る
   const { generate, isPending: isGenPending } = useImageGeneration();
   const { edit, isPending: isEditPending } = useImageEditing();
 
@@ -42,7 +41,6 @@ export const PromptComposer: React.FC = () => {
   const [showHintsModal, setShowHintsModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 実行前に関数型をチェック（開発時の保険）
   const assertFn = (name: string, fn: any) => {
     if (typeof fn !== 'function') {
       console.error(`[DRESSUP] ${name} is not a function`, fn);
@@ -54,7 +52,6 @@ export const PromptComposer: React.FC = () => {
     const prompt = currentPrompt.trim();
     if (!prompt) return;
 
-    // 送信前の概算サイズチェック（>3.5MB は弾く）
     const approxTotalMB = (() => {
       const parts: string[] = [];
       if (selectedTool === 'generate') {
@@ -68,24 +65,16 @@ export const PromptComposer: React.FC = () => {
 
     if (approxTotalMB > 3.5) {
       console.warn(`[DRESSUP] payload too large (~${approxTotalMB.toFixed(2)} MB). Try smaller images.`);
-      // TODO: 必要ならトースト等でユーザー通知
       return;
     }
 
     try {
       if (selectedTool === 'generate') {
         assertFn('generate', generate);
-
-        // ★ サービス側（/api/generate）が dataURL を想定しているので、そのまま渡す
         const referenceImages = uploadedImages.length > 0 ? uploadedImages : undefined;
-
-        await generate({
-          prompt,
-          referenceImages,
-        });
+        await generate({ prompt, referenceImages });
       } else if (selectedTool === 'edit' || selectedTool === 'mask') {
         assertFn('edit', edit);
-        // 編集は prompt のみ渡す（元画像と参照画像は hook 内で store から取得）
         await edit(prompt);
       }
     } catch (e) {
@@ -97,28 +86,24 @@ export const PromptComposer: React.FC = () => {
     const file = event.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
       try {
-        // ★ 413対策：アップロード直後に縮小＆再圧縮（長辺1024px, webp 品質0.85）
         const dataUrl = await resizeFileToDataURL(file, { maxEdge: 1024, mime: 'image/webp', quality: 0.85 });
         const mb = base64SizeMB(dataUrl);
         console.log(`[DRESSUP] resized upload ~${mb.toFixed(2)} MB`);
 
         if (selectedTool === 'generate') {
-          // 参照画像（最大2・重複防止）
           if (!uploadedImages.includes(dataUrl) && uploadedImages.length < 2) {
             addUploadedImage(dataUrl);
           }
         } else if (selectedTool === 'edit') {
-          // ★ 最初の1枚は元画像としてのみセット（参照には入れない）
+          // 最初の1枚は元画像（Base）、2枚目以降は参照
           if (!canvasImage) {
             setCanvasImage(dataUrl);
           } else {
-            // 2枚目以降は参照に追加（重複防止 & 上限2）
             if (!editReferenceImages.includes(dataUrl) && editReferenceImages.length < 2) {
               addEditReferenceImage(dataUrl);
             }
           }
         } else if (selectedTool === 'mask') {
-          // マスクモードは即キャンバスへ
           clearUploadedImages();
           addUploadedImage(dataUrl);
           setCanvasImage(dataUrl);
@@ -164,7 +149,6 @@ export const PromptComposer: React.FC = () => {
     );
   }
 
-  // 押下可能条件（参照画像は任意。キャンバス画像＋プロンプトで有効）
   const hasPrompt = currentPrompt.trim().length > 0;
   const canGenerate = selectedTool === 'generate' && hasPrompt && !isGenPending;
   const canEdit = (selectedTool === 'edit' || selectedTool === 'mask') && hasPrompt && !!canvasImage && !isEditPending;
@@ -236,7 +220,30 @@ export const PromptComposer: React.FC = () => {
               Upload
             </Button>
 
-            {/* Show uploaded images preview */}
+            {/* ★ Base Image (Edit mode only) */}
+            {selectedTool === 'edit' && canvasImage && (
+              <div className="mt-3 space-y-2">
+                <div className="relative">
+                  <img
+                    src={canvasImage}
+                    alt="Base"
+                    className="w-full h-24 object-cover rounded-lg border border-gray-700"
+                  />
+                  <button
+                    onClick={() => setCanvasImage(null)}
+                    className="absolute top-1 right-1 bg-white/80 text-gray-700 hover:text-gray-900 rounded-full p-1 transition-colors"
+                    title="Clear base image"
+                  >
+                    ×
+                  </button>
+                  <div className="absolute bottom-1 left-1 bg-white/80 text-xs px-2 py-1 rounded text-gray-700 font-medium">
+                    Base
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Style References / Reference Images */}
             {((selectedTool === 'generate' && uploadedImages.length > 0) ||
               (selectedTool === 'edit' && editReferenceImages.length > 0)) && (
               <div className="mt-3 space-y-2">
@@ -245,11 +252,12 @@ export const PromptComposer: React.FC = () => {
                     <img src={image} alt={`Reference ${index + 1}`} className="w-full h-20 object-cover rounded-lg border border-gray-700" />
                     <button
                       onClick={() => (selectedTool === 'generate' ? removeUploadedImage(index) : removeEditReferenceImage(index))}
-                      className="absolute top-1 right-1 bg-white/80 text-gray-400 hover:text-gray-200 rounded-full p-1 transition-colors"
+                      className="absolute top-1 right-1 bg-white/80 text-gray-700 hover:text-gray-900 rounded-full p-1 transition-colors"
+                      title="Remove"
                     >
                       ×
                     </button>
-                    <div className="absolute bottom-1 left-1 bg-white/80 text-xs px-2 py-1 rounded text-gray-300">Ref {index + 1}</div>
+                    <div className="absolute bottom-1 left-1 bg-white/80 text-xs px-2 py-1 rounded text-gray-700">Ref {index + 1}</div>
                   </div>
                 ))}
               </div>
@@ -273,7 +281,6 @@ export const PromptComposer: React.FC = () => {
             className="min-h-[120px] resize-none"
           />
 
-          {/* Prompt Quality Indicator */}
           <button onClick={() => setShowHintsModal(true)} className="mt-2 flex items-center text-xs hover:text-gray-400 transition-colors group">
             {currentPrompt.length < 20 ? (
               <HelpCircle className="h-3 w-3 mr-2 text-red-500 group-hover:text-red-400" />
@@ -353,7 +360,6 @@ export const PromptComposer: React.FC = () => {
 
           {showAdvanced && (
             <div className="mt-4 space-y-4">
-              {/* Temperature */}
               <div>
                 <label className="text-xs text-gray-400 mb-2 block">Creativity ({temperature})</label>
                 <input
@@ -366,8 +372,6 @@ export const PromptComposer: React.FC = () => {
                   className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer slider"
                 />
               </div>
-
-              {/* Seed */}
               <div>
                 <label className="text-xs text-gray-400 mb-2 block">Seed (optional)</label>
                 <input
@@ -382,35 +386,18 @@ export const PromptComposer: React.FC = () => {
           )}
         </div>
 
-        {/* Keyboard Shortcuts */}
         <div className="pt-4 border-t border-gray-200">
           <h4 className="text-xs font-medium text-gray-400 mb-2">Shortcuts</h4>
           <div className="space-y-1 text-xs text-gray-500">
-            <div className="flex justify-between">
-              <span>Generate</span>
-              <span>⌘ + Enter</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Re-roll</span>
-              <span>⇧ + R</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Edit mode</span>
-              <span>E</span>
-            </div>
-            <div className="flex justify-between">
-              <span>History</span>
-              <span>H</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Toggle Panel</span>
-              <span>P</span>
-            </div>
+            <div className="flex justify-between"><span>Generate</span><span>⌘ + Enter</span></div>
+            <div className="flex justify-between"><span>Re-roll</span><span>⇧ + R</span></div>
+            <div className="flex justify-between"><span>Edit mode</span><span>E</span></div>
+            <div className="flex justify-between"><span>History</span><span>H</span></div>
+            <div className="flex justify-between"><span>Toggle Panel</span><span>P</span></div>
           </div>
         </div>
       </div>
 
-      {/* Prompt Hints Modal */}
       <PromptHints open={showHintsModal} onOpenChange={setShowHintsModal} />
     </>
   );
