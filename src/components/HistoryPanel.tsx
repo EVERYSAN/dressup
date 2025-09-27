@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { Button } from './ui/Button';
-import { History, Download, Image as ImageIcon, Layers } from 'lucide-react';
+import { History, Download, Image as ImageIcon } from 'lucide-react';
 import { cn } from '../utils/cn';
 import { ImagePreviewModal } from './ImagePreviewModal';
 
@@ -16,7 +16,7 @@ export const HistoryPanel: React.FC = () => {
     showHistory,
     setShowHistory,
     setCanvasImage,
-    selectedTool
+    selectedTool,
   } = useAppStore();
 
   const [previewModal, setPreviewModal] = React.useState<{
@@ -28,25 +28,19 @@ export const HistoryPanel: React.FC = () => {
     open: false,
     imageUrl: '',
     title: '',
-    description: ''
+    description: '',
   });
 
-  const generations = currentProject?.generations || [];
-  const edits = currentProject?.edits || [];
+  const generations = currentProject?.generations ?? [];
+  const edits = currentProject?.edits ?? [];
 
-  // Get current image dimensions
+  // 画像サイズの表示（中央画像が変わったら更新）
   const [imageDimensions, setImageDimensions] = React.useState<{ width: number; height: number } | null>(null);
-  
   React.useEffect(() => {
-    if (canvasImage) {
-      const img = new Image();
-      img.onload = () => {
-        setImageDimensions({ width: img.width, height: img.height });
-      };
-      img.src = canvasImage;
-    } else {
-      setImageDimensions(null);
-    }
+    if (!canvasImage) return setImageDimensions(null);
+    const img = new Image();
+    img.onload = () => setImageDimensions({ width: img.width, height: img.height });
+    img.src = canvasImage;
   }, [canvasImage]);
 
   if (!showHistory) {
@@ -58,9 +52,9 @@ export const HistoryPanel: React.FC = () => {
           title="Show History Panel"
         >
           <div className="flex flex-col space-y-1">
-            <div className="w-1 h-1 bg-gray-500 group-hover:bg-gray-400 rounded-full"></div>
-            <div className="w-1 h-1 bg-gray-500 group-hover:bg-gray-400 rounded-full"></div>
-            <div className="w-1 h-1 bg-gray-500 group-hover:bg-gray-400 rounded-full"></div>
+            <div className="w-1 h-1 bg-gray-500 group-hover:bg-gray-400 rounded-full" />
+            <div className="w-1 h-1 bg-gray-500 group-hover:bg-gray-400 rounded-full" />
+            <div className="w-1 h-1 bg-gray-500 group-hover:bg-gray-400 rounded-full" />
           </div>
         </button>
       </div>
@@ -87,8 +81,9 @@ export const HistoryPanel: React.FC = () => {
       </div>
 
       {/* Variants Grid */}
-      <div className="mb-6 flex-shrink-0">
+      <div className="mb-6 flex-shrink-0 max-h-64 overflow-y-auto pr-1">
         <h4 className="text-xs font-semibold text-gray-700 mb-3">Current Variants</h4>
+
         {generations.length === 0 && edits.length === 0 ? (
           <div className="text-center py-8">
             <div className="text-4xl mb-2">🖼️</div>
@@ -96,80 +91,74 @@ export const HistoryPanel: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3">
-            {/* Show generations */}
-            {generations.slice(-2).map((generation, index) => (
-              <div
-                key={generation.id}
-                className={cn(
-                  'relative aspect-square rounded-lg border-2 cursor-pointer transition-all duration-200 overflow-hidden',
-                  selectedGenerationId === generation.id
-                    ? 'border-yellow-400'
-                    : 'border-gray-200 hover:border-gray-300'
-                )}
-                onClick={() => {
-                  selectGeneration(generation.id);
-                  if (generation.outputAssets[0]) {
-                    setCanvasImage(generation.outputAssets[0].url);
-                  }
-                }}
-              >
-                {generation.outputAssets[0] ? (
-                  <>
-                    <img
-                      src={generation.outputAssets[0].url}
-                      alt="Generated variant"
-                      className="w-full h-full object-cover"
-                    />
-                  </>
-                ) : (
-                  <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-yellow-400" />
+            {/* Generations */}
+            {generations.map((generation, index) => {
+              const firstOut = generation.outputAssets?.[0];
+              const url = firstOut?.url;
+              const selected = selectedGenerationId === generation.id;
+              return (
+                <div
+                  key={generation.id}
+                  className={cn(
+                    'relative aspect-square rounded-lg border-2 cursor-pointer transition-all duration-200 overflow-hidden',
+                    selected ? 'border-yellow-400' : 'border-gray-200 hover:border-gray-300'
+                  )}
+                  onClick={() => {
+                    selectGeneration(generation.id);
+                    selectEdit(null);
+                    if (url) setCanvasImage(url);
+                  }}
+                >
+                  {url ? (
+                    <img src={url} alt="Generated variant" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-yellow-400" />
+                    </div>
+                  )}
+
+                  {/* FIX: タイポ修正 bg-white/80 */}
+                  <div className="absolute top-2 left-2 bg-white/80 text-xs px-2 py-1 rounded text-gray-700">
+                    #{index + 1}
                   </div>
-                )}
-                
-                {/* Variant Number */}
-                <div className="absolute top-2 left-2 bg-gray-white/80 text-xs px-2 py-1 rounded">
-                  #{index + 1}
                 </div>
-              </div>
-            ))}
-            
-            {/* Show edits */}
-            {edits.slice(-2).map((edit, index) => (
-              <div
-                key={edit.id}
-                className={cn(
-                  'relative aspect-square rounded-lg border-2 cursor-pointer transition-all duration-200 overflow-hidden',
-                  selectedEditId === edit.id
-                    ? 'border-yellow-400'
-                    : 'border-gray-700 hover:border-gray-600'
-                )}
-                onClick={() => {
-                  if (edit.outputAssets[0]) {
-                    setCanvasImage(edit.outputAssets[0].url);
-                    selectEdit(edit.id);
-                    selectGeneration(null);
-                  }
-                }}
-              >
-                {edit.outputAssets[0] ? (
-                  <img
-                    src={edit.outputAssets[0].url}
-                    alt="Edited variant"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full bg-gray-800 flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-yellow-400" />
+              );
+            })}
+
+            {/* Edits */}
+            {edits.map((edit, index) => {
+              const firstOut = edit.outputAssets?.[0];
+              const url = firstOut?.url;
+              const selected = selectedEditId === edit.id;
+              return (
+                <div
+                  key={edit.id}
+                  className={cn(
+                    'relative aspect-square rounded-lg border-2 cursor-pointer transition-all duration-200 overflow-hidden',
+                    selected ? 'border-yellow-400' : 'border-gray-700 hover:border-gray-600'
+                  )}
+                  onClick={() => {
+                    if (url) {
+                      setCanvasImage(url);
+                      selectEdit(edit.id);
+                      selectGeneration(null);
+                    }
+                  }}
+                >
+                  {url ? (
+                    <img src={url} alt="Edited variant" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-gray-800 flex items-center justify-center">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-yellow-400" />
+                    </div>
+                  )}
+
+                  <div className="absolute top-2 left-2 bg-purple-900/80 text-xs px-2 py-1 rounded text-purple-200">
+                    Edit #{index + 1}
                   </div>
-                )}
-                
-                {/* Edit Label */}
-                <div className="absolute top-2 left-2 bg-purple-900/80 text-xs px-2 py-1 rounded">
-                  Edit #{index + 1}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -182,24 +171,26 @@ export const HistoryPanel: React.FC = () => {
             {imageDimensions && (
               <div className="flex justify-between">
                 <span>Dimensions:</span>
-                <span className="text-gray-900">{imageDimensions.width} × {imageDimensions.height}</span>
+                <span className="text-gray-900">
+                  {imageDimensions.width} × {imageDimensions.height}
+                </span>
               </div>
             )}
             <div className="flex justify-between">
               <span>Mode:</span>
-              <span className="text-gray-300 capitalize">{selectedTool}</span>
+              <span className="text-gray-700 capitalize">{selectedTool ?? '—'}</span>
             </div>
           </div>
         </div>
       )}
 
-      {/* Generation Details */}
+      {/* Details */}
       <div className="mb-6 p-4 bg-white rounded-lg border border-gray-200 shadow-sm flex-1 overflow-y-auto min-h-0">
         <h4 className="text-xs font-semibold text-gray-700 mb-2">Generation Details</h4>
         {(() => {
-          const gen = generations.find(g => g.id === selectedGenerationId);
-          const selectedEdit = edits.find(e => e.id === selectedEditId);
-          
+          const gen = generations.find((g) => g.id === selectedGenerationId);
+          const selEdit = edits.find((e) => e.id === selectedEditId);
+
           if (gen) {
             return (
               <div className="space-y-3">
@@ -212,35 +203,32 @@ export const HistoryPanel: React.FC = () => {
                     <span>Model:</span>
                     <span>{gen.modelVersion}</span>
                   </div>
-                  {gen.parameters.seed && (
+                  {gen.parameters?.seed != null && (
                     <div className="flex justify-between">
                       <span>Seed:</span>
                       <span>{gen.parameters.seed}</span>
                     </div>
                   )}
                 </div>
-                
-                {/* Reference Images */}
-                {gen.sourceAssets.length > 0 && (
+
+                {gen.sourceAssets?.length > 0 && (
                   <div>
                     <h5 className="text-xs font-semibold text-gray-700 mb-2">Reference Images</h5>
                     <div className="grid grid-cols-2 gap-2">
                       {gen.sourceAssets.map((asset, index) => (
                         <button
                           key={asset.id}
-                          onClick={() => setPreviewModal({
-                            open: true,
-                            imageUrl: asset.url,
-                            title: `Reference Image ${index + 1}`,
-                            description: 'This reference image was used to guide the generation'
-                          })}
-                          className="relative aspect-square rounded border border-gray-700 hover:border-gray-600 transition-colors overflow-hidden group"
+                          onClick={() =>
+                            setPreviewModal({
+                              open: true,
+                              imageUrl: asset.url,
+                              title: `Reference Image ${index + 1}`,
+                              description: 'This reference image was used to guide the generation',
+                            })
+                          }
+                          className="relative aspect-square rounded border border-gray-300 hover:border-gray-400 transition-colors overflow-hidden group"
                         >
-                          <img
-                            src={asset.url}
-                            alt={`Reference ${index + 1}`}
-                            className="w-full h-full object-cover"
-                          />
+                          <img src={asset.url} alt={`Reference ${index + 1}`} className="w-full h-full object-cover" />
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
                             <ImageIcon className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                           </div>
@@ -254,14 +242,17 @@ export const HistoryPanel: React.FC = () => {
                 )}
               </div>
             );
-          } else if (selectedEdit) {
-            const parentGen = generations.find(g => g.id === selectedEdit.parentGenerationId);
+          } else if (selEdit) {
+            const parentGen = selEdit.parentGenerationId
+              ? generations.find((g) => g.id === selEdit.parentGenerationId)
+              : null;
+
             return (
               <div className="space-y-3">
                 <div className="space-y-2 text-xs text-gray-500">
                   <div>
                     <span className="text-gray-700">Edit Instruction:</span>
-                    <p className="text-gray-800 mt-1">{selectedEdit.instruction}</p>
+                    <p className="text-gray-800 mt-1">{selEdit.instruction}</p>
                   </div>
                   <div className="flex justify-between">
                     <span>Type:</span>
@@ -269,63 +260,52 @@ export const HistoryPanel: React.FC = () => {
                   </div>
                   <div className="flex justify-between">
                     <span>Created:</span>
-                    <span>{new Date(selectedEdit.timestamp).toLocaleTimeString()}</span>
+                    <span>{new Date(selEdit.timestamp).toLocaleTimeString()}</span>
                   </div>
-                  {selectedEdit.maskAssetId && (
-                    <div className="flex justify-between">
-                      <span>Mask:</span>
-                      <span className="text-purple-600">Applied</span>
-                    </div>
-                  )}
                 </div>
-                
-                {/* Parent Generation Reference */}
-                {parentGen && (
+
+                {parentGen?.outputAssets?.[0]?.url && (
                   <div>
-                    <h5 className="text-xs font-medium text-gray-400 mb-2">Original Image</h5>
+                    <h5 className="text-xs font-medium text-gray-600 mb-2">Original Image</h5>
                     <button
-                      onClick={() => setPreviewModal({
-                        open: true,
-                        imageUrl: parentGen.outputAssets[0]?.url || '',
-                        title: 'Original Image',
-                        description: 'The base image that was edited'
-                      })}
-                      className="relative aspect-square w-16 rounded border border-gray-700 hover:border-gray-600 transition-colors overflow-hidden group"
+                      onClick={() =>
+                        setPreviewModal({
+                          open: true,
+                          imageUrl: parentGen.outputAssets[0].url,
+                          title: 'Original Image',
+                          description: 'The base image that was edited',
+                        })
+                      }
+                      className="relative aspect-square w-16 rounded border border-gray-300 hover:border-gray-400 transition-colors overflow-hidden group"
                     >
-                      <img
-                        src={parentGen.outputAssets[0]?.url}
-                        alt="Original"
-                        className="w-full h-full object-cover"
-                      />
+                      <img src={parentGen.outputAssets[0].url} alt="Original" className="w-full h-full object-cover" />
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
                         <ImageIcon className="h-3 w-3 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                     </button>
                   </div>
                 )}
-                
-                {/* Mask Visualization */}
-                {selectedEdit.maskReferenceAsset && (
+
+                {selEdit.maskReferenceAsset?.url && (
                   <div>
-                    <h5 className="text-xs font-medium text-gray-400 mb-2">Masked Reference</h5>
+                    <h5 className="text-xs font-medium text-gray-600 mb-2">Masked Reference</h5>
                     <button
-                      onClick={() => setPreviewModal({
-                        open: true,
-                        imageUrl: selectedEdit.maskReferenceAsset!.url,
-                        title: 'Masked Reference Image',
-                        description: 'This image with mask overlay was sent to the AI model to guide the edit'
-                      })}
-                      className="relative aspect-square w-16 rounded border border-gray-700 hover:border-gray-600 transition-colors overflow-hidden group"
+                      onClick={() =>
+                        setPreviewModal({
+                          open: true,
+                          imageUrl: selEdit.maskReferenceAsset!.url,
+                          title: 'Masked Reference Image',
+                          description:
+                            'This image with mask overlay was sent to the AI model to guide the edit',
+                        })
+                      }
+                      className="relative aspect-square w-16 rounded border border-gray-300 hover:border-gray-400 transition-colors overflow-hidden group"
                     >
-                      <img
-                        src={selectedEdit.maskReferenceAsset.url}
-                        alt="Masked reference"
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                        <ImageIcon className="h-3 w-3 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <img src={selEdit.maskReferenceAsset.url} alt="Masked reference" className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors transition-opacity flex items-center justify-center">
+                        <ImageIcon className="h-3 w-3 text-white opacity-0 group-hover:opacity-100" />
                       </div>
-                      <div className="absolute bottom-1 left-1 bg-purple-900/80 text-xs px-1 py-0.5 rounded text-purple-300">
+                      <div className="absolute bottom-1 left-1 bg-purple-900/80 text-xs px-1 py-0.5 rounded text-purple-200">
                         Mask
                       </div>
                     </button>
@@ -333,78 +313,72 @@ export const HistoryPanel: React.FC = () => {
                 )}
               </div>
             );
-          } else {
-            return (
-              <div className="space-y-2 text-xs text-gray-500">
-                <p className="text-gray-400">Select a generation or edit to view details</p>
-              </div>
-            );
           }
+
+          return <p className="text-xs text-gray-500">Select a generation or edit to view details</p>;
         })()}
       </div>
 
       {/* Actions */}
       <div className="space-y-3 flex-shrink-0">
-        <Button 
-          variant="outline" 
-          size="sm" 
+        <Button
+          variant="outline"
+          size="sm"
           className="w-full text-blue-600 hover:text-blue-800 border-blue-600 hover:border-blue-800"
-          onClick={() => {
-            // Find the currently displayed image (either generation or edit)
+          onClick={async () => {
             let imageUrl: string | null = null;
-            
             if (selectedGenerationId) {
-              const gen = generations.find(g => g.id === selectedGenerationId);
-              imageUrl = gen?.outputAssets[0]?.url || null;
+              const gen = generations.find((g) => g.id === selectedGenerationId);
+              imageUrl = gen?.outputAssets?.[0]?.url ?? null;
+            } else if (selectedEditId) {
+              const ed = edits.find((e) => e.id === selectedEditId);
+              imageUrl = ed?.outputAssets?.[0]?.url ?? null;
             } else {
-              // If no generation selected, try to get the current canvas image
-              const { canvasImage } = useAppStore.getState();
-              imageUrl = canvasImage;
+              imageUrl = canvasImage ?? null;
             }
-            
-            if (imageUrl) {
-              // Handle both data URLs and regular URLs
+
+            if (!imageUrl) return;
+
+            try {
               if (imageUrl.startsWith('data:')) {
-                const link = document.createElement('a');
-                link.href = imageUrl;
-                link.download = `nano-banana-${Date.now()}.png`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
+                const a = document.createElement('a');
+                a.href = imageUrl;
+                a.download = `dressup-${Date.now()}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
               } else {
-                // For external URLs, we need to fetch and convert to blob
-                fetch(imageUrl)
-                  .then(response => response.blob())
-                  .then(blob => {
-                    const url = URL.createObjectURL(blob);
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.download = `nano-banana-${Date.now()}.png`;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    URL.revokeObjectURL(url);
-                  });
+                const blob = await fetch(imageUrl).then((r) => r.blob());
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `dressup-${Date.now()}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
               }
+            } catch (e) {
+              console.error('single download error', e);
             }
           }}
-          disabled={!selectedGenerationId && !useAppStore.getState().canvasImage}
+          disabled={!selectedGenerationId && !selectedEditId && !canvasImage}
         >
           <Download className="h-4 w-4 mr-2" />
           Download
         </Button>
-                <Button
+
+        <Button
           variant="outline"
           size="sm"
           className="w-full"
           onClick={async () => {
-            const { currentProject } = useAppStore.getState();
             if (!currentProject) return;
             const urls: string[] = [
-              ...currentProject.generations.map(g => g.outputAssets[0]?.url).filter(Boolean),
-              ...currentProject.edits.map(e => e.outputAssets[0]?.url).filter(Boolean),
-            ] as string[];
-      
+              ...generations.map((g) => g.outputAssets?.[0]?.url).filter(Boolean) as string[],
+              ...edits.map((e) => e.outputAssets?.[0]?.url).filter(Boolean) as string[],
+            ];
+
             for (let i = 0; i < urls.length; i++) {
               const url = urls[i];
               try {
@@ -412,31 +386,35 @@ export const HistoryPanel: React.FC = () => {
                   const a = document.createElement('a');
                   a.href = url;
                   a.download = `dressup-${i + 1}.png`;
-                  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
                 } else {
-                  const blob = await fetch(url).then(r => r.blob());
+                  const blob = await fetch(url).then((r) => r.blob());
                   const o = URL.createObjectURL(blob);
                   const a = document.createElement('a');
-                  a.href = o; a.download = `dressup-${i + 1}.png`;
-                  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                  a.href = o;
+                  a.download = `dressup-${i + 1}.png`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
                   URL.revokeObjectURL(o);
                 }
-              } catch (e) { console.error('batch download error', e); }
+              } catch (e) {
+                console.error('batch download error', e);
+              }
             }
           }}
-          disabled={
-            (useAppStore.getState().currentProject?.generations.length ?? 0) +
-            (useAppStore.getState().currentProject?.edits.length ?? 0) === 0
-          }
+          disabled={generations.length + edits.length === 0}
         >
           Download All
         </Button>
       </div>
-      
+
       {/* Image Preview Modal */}
       <ImagePreviewModal
         open={previewModal.open}
-        onOpenChange={(open) => setPreviewModal(prev => ({ ...prev, open }))}
+        onOpenChange={(open) => setPreviewModal((prev) => ({ ...prev, open }))}
         imageUrl={previewModal.imageUrl}
         title={previewModal.title}
         description={previewModal.description}
