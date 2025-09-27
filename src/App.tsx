@@ -10,19 +10,15 @@ import { useAppStore } from './store/useAppStore';
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutes
-      retry: 2,
-    },
+    queries: { staleTime: 5 * 60 * 1000, retry: 2 },
   },
 });
 
 function AppContent() {
   useKeyboardShortcuts();
-  
   const { showPromptPanel, setShowPromptPanel, showHistory, setShowHistory } = useAppStore();
-  
-  // Set mobile defaults on mount
+
+  // Mobile 初回は左右パネルを閉じる
   React.useEffect(() => {
     const checkMobile = () => {
       const isMobile = window.innerWidth < 768;
@@ -31,28 +27,37 @@ function AppContent() {
         setShowHistory(false);
       }
     };
-    
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, [setShowPromptPanel, setShowHistory]);
 
-    return (
-    <div className="min-h-screen bg-white text-gray-900 flex flex-col font-sans">
+  return (
+    // ← min-h-screen ではなく h-screen。html/body/#root=100% とセットで使う
+    <div className="h-screen bg-white text-gray-900 flex flex-col font-sans">
       <Header />
-  
-      <div className="flex-1 flex overflow-hidden">
-        <div className={cn("flex-shrink-0 transition-all duration-300", !showPromptPanel && "w-8")}>
+
+      {/* ← overflow-hidden をやめて min-h-0 に。子要素がスクロール可能に */}
+      <div className="flex-1 flex min-h-0">
+        {/* 左パネル：高さ100%で内部スクロール */}
+        <div className={cn(
+          "flex-shrink-0 transition-all duration-300 h-full overflow-y-auto",
+          !showPromptPanel && "w-8"
+        )}>
           <PromptComposer />
         </div>
+
+        {/* キャンバス：中面は必要に応じて独自管理 */}
         <div className="flex-1 min-w-0">
           <ImageCanvas />
         </div>
-        <div className="flex-shrink-0">
+
+        {/* 右パネル：高さ100%で内部スクロール（HistoryPanel 側の overflow 管理でもOK） */}
+        <div className="flex-shrink-0 h-full overflow-y-auto">
           <HistoryPanel />
         </div>
       </div>
-  
+
       <footer className="border-t border-gray-200 bg-white text-xs text-gray-500 px-4 py-3">
         <div>© 2025 EVERYSAN — Modified from NanoBananaEditor (AGPLv3)</div>
         <div className="mt-1">
@@ -64,7 +69,6 @@ function AppContent() {
       </footer>
     </div>
   );
-
 }
 
 function App() {
