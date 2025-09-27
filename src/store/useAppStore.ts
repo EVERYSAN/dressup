@@ -8,31 +8,69 @@ export type Pan = { x: number; y: number };
 
 export type BrushStroke = {
   id: string;
-  points: number[];
+  points: number[]; // image coordinate [x1,y1,x2,y2,...]
   brushSize: number;
 };
 
-export type GenAsset = { id: string; url: string; width?: number; height?: number; meta?: Record<string, any> };
-export type HistoryItem = { id: string; createdAt: number; prompt: string; negativePrompt?: string; seed?: number | null; params?: Record<string, any>; assets: GenAsset[] };
-export type EditItem = { id: string; instruction: string; parentGenerationId: string | null; maskReferenceAsset: string | null; outputAssets: GenAsset[]; timestamp: number };
-export type Project = { id: string; name: string; edits: EditItem[] };
+export type GenAsset = {
+  id: string;
+  url: string;
+  width?: number;
+  height?: number;
+  meta?: Record<string, any>;
+};
+
+export type HistoryItem = {
+  id: string;
+  createdAt: number;
+  prompt: string;
+  negativePrompt?: string;
+  seed?: number | null;
+  params?: Record<string, any>;
+  assets: GenAsset[];
+};
+
+export type EditItem = {
+  id: string;
+  instruction: string;
+  parentGenerationId: string | null;
+  maskReferenceAsset: string | null;
+  outputAssets: GenAsset[];
+  timestamp: number;
+};
+
+export type Project = {
+  id: string;
+  name: string;
+  edits: EditItem[];
+};
 
 /* ========= Utils ========= */
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
-const toNum = (v: unknown, fb: number) => (typeof v === 'number' && Number.isFinite(v) ? v : Number.isFinite(Number(v)) ? Number(v) : fb);
+const toNum = (v: unknown, fb: number) =>
+  typeof v === 'number' && Number.isFinite(v)
+    ? v
+    : Number.isFinite(Number(v))
+    ? Number(v)
+    : fb;
 const toInt = (v: unknown, fb: number) => Math.trunc(toNum(v, fb));
-const toBool = (v: unknown, fb = false) => (typeof v === 'boolean' ? v : v === 'true' ? true : v === 'false' ? false : fb);
-const sanitizePan = (p: any): Pan => ({ x: Number.isFinite(p?.x) ? p.x : 0, y: Number.isFinite(p?.y) ? p.y : 0 });
+const toBool = (v: unknown, fb = false) =>
+  typeof v === 'boolean' ? v : v === 'true' ? true : v === 'false' ? false : fb;
+
+const sanitizePan = (p: any): Pan => ({
+  x: Number.isFinite(p?.x) ? p.x : 0,
+  y: Number.isFinite(p?.y) ? p.y : 0,
+});
 
 /* ========= Store shape ========= */
 export type AppState = {
-  // ---- UI / Panels ----
-  sidebarOpen: boolean;                  // 新: 左パネル（編集）
+  // ---- Panels (Left/Right) ----
+  sidebarOpen: boolean; // left (new)
   setSidebarOpen: (v: boolean) => void;
-  rightPanelOpen: boolean;               // 新: 右パネル（履歴）
+  rightPanelOpen: boolean; // right (new)
   setRightPanelOpen: (v: boolean) => void;
 
-  // 互換エイリアス（既存レイアウトがどれを読んでも動くように）
+  // Backward-compat aliases (keep UI working without changing components)
   editorOpen: boolean;
   setEditorOpen: (v: boolean) => void;
   isEditorOpen: boolean;
@@ -43,22 +81,27 @@ export type AppState = {
   isHistoryOpen: boolean;
   setIsHistoryOpen: (v: boolean) => void;
 
-  // 幅も必要なら（固定 or resizable 実装用）
-  leftPanelWidth: number;                // px
-  rightPanelWidth: number;               // px
+  // Legacy names used by App.tsx (critical for your error):
+  showPromptPanel: boolean;
+  setShowPromptPanel: (v: boolean) => void;
+  showHistory: boolean;
+  setShowHistory: (v: boolean) => void;
+
+  leftPanelWidth: number; // px
+  rightPanelWidth: number; // px
   setLeftPanelWidth: (px: number) => void;
   setRightPanelWidth: (px: number) => void;
 
   // ---- Canvas / View ----
-  canvasImage: string | null;
-  refImage: string | null;
+  canvasImage: string | null; // base image
+  refImage: string | null; // reference image
   setCanvasImage: (src: string | null) => void;
   setRefImage: (src: string | null) => void;
 
-  canvasZoom: number;                    // 0.1 - 3.0
+  canvasZoom: number; // 0.1–3.0
   setCanvasZoom: (z: number) => void;
 
-  canvasPan: Pan;                        // スケール前の論理座標
+  canvasPan: Pan; // pre-scale logical pan
   setCanvasPan: (p: Pan) => void;
 
   // ---- Mask ----
@@ -95,7 +138,7 @@ export type AppState = {
   // ---- Generation flow ----
   isGenerating: boolean;
   setIsGenerating: (v: boolean) => void;
-  progress: number;
+  progress: number; // 0–1
   setProgress: (p: number) => void;
   lastError: string | null;
   setLastError: (m: string | null) => void;
@@ -124,33 +167,81 @@ export type AppState = {
 export const useAppStore = create<AppState>()(
   persist(
     devtools((set, get) => ({
-      // ---- UI / Panels (デフォルトで両方 true にして“消えない”状態に) ----
+      // ---- Panels (default to open so they never "disappear") ----
       sidebarOpen: true,
       setSidebarOpen: (v) =>
         set({
           sidebarOpen: !!v,
-          editorOpen: !!v,        // 互換フラグも同期
+          // sync all left-panel aliases
+          editorOpen: !!v,
           isEditorOpen: !!v,
+          showPromptPanel: !!v,
         }),
 
       rightPanelOpen: true,
       setRightPanelOpen: (v) =>
         set({
           rightPanelOpen: !!v,
-          historyOpen: !!v,       // 互換フラグも同期
+          // sync all right-panel aliases
+          historyOpen: !!v,
           isHistoryOpen: !!v,
+          showHistory: !!v,
         }),
 
-      // 互換名（既存 JSX がこの名前を見ていても動く）
+      // Aliases — any component reading old names will still work
       editorOpen: true,
-      setEditorOpen: (v) => set({ editorOpen: !!v, sidebarOpen: !!v, isEditorOpen: !!v }),
+      setEditorOpen: (v) =>
+        set({
+          editorOpen: !!v,
+          sidebarOpen: !!v,
+          isEditorOpen: !!v,
+          showPromptPanel: !!v,
+        }),
+
       isEditorOpen: true,
-      setIsEditorOpen: (v) => set({ isEditorOpen: !!v, sidebarOpen: !!v, editorOpen: !!v }),
+      setIsEditorOpen: (v) =>
+        set({
+          isEditorOpen: !!v,
+          sidebarOpen: !!v,
+          editorOpen: !!v,
+          showPromptPanel: !!v,
+        }),
 
       historyOpen: true,
-      setHistoryOpen: (v) => set({ historyOpen: !!v, rightPanelOpen: !!v, isHistoryOpen: !!v }),
+      setHistoryOpen: (v) =>
+        set({
+          historyOpen: !!v,
+          rightPanelOpen: !!v,
+          isHistoryOpen: !!v,
+          showHistory: !!v,
+        }),
+
       isHistoryOpen: true,
-      setIsHistoryOpen: (v) => set({ isHistoryOpen: !!v, rightPanelOpen: !!v, historyOpen: !!v }),
+      setIsHistoryOpen: (v) =>
+        set({
+          isHistoryOpen: !!v,
+          rightPanelOpen: !!v,
+          historyOpen: !!v,
+          showHistory: !!v,
+        }),
+
+      // Legacy names used by App.tsx
+      showPromptPanel: true,
+      setShowPromptPanel: (v) =>
+        set({
+          showPromptPanel: !!v,
+          sidebarOpen: !!v,
+          editorOpen: !!v,
+          isEditorOpen: !!v,
+        }),
+      showHistory: true,
+      setShowHistory: (v) =>
+        set({
+          showHistory: !!v,
+          rightPanelOpen: !!v,
+          historyOpen: !!v,
+          isHistoryOpen: !!v,
+        }),
 
       leftPanelWidth: 288,
       rightPanelWidth: 320,
@@ -185,6 +276,7 @@ export const useAppStore = create<AppState>()(
       setInstruction: (v) => set({ instruction: v ?? '' }),
       negativePrompt: '',
       setNegativePrompt: (v) => set({ negativePrompt: v ?? '' }),
+
       cfgScale: 7,
       setCfgScale: (v) => set({ cfgScale: clamp(toNum(v, 7), 0, 30) }),
       steps: 28,
@@ -193,7 +285,11 @@ export const useAppStore = create<AppState>()(
       setStrength: (v) => set({ strength: clamp(toNum(v, 0.7), 0, 1) }),
       width: 1024,
       height: 1024,
-      setSize: (w, h) => set({ width: clamp(toInt(w, 1024), 64, 4096), height: clamp(toInt(h, 1024), 64, 4096) }),
+      setSize: (w, h) =>
+        set({
+          width: clamp(toInt(w, 1024), 64, 4096),
+          height: clamp(toInt(h, 1024), 64, 4096),
+        }),
       seed: null,
       setSeed: (v) => set({ seed: v === null ? null : toInt(v, 0) }),
       temperature: 0.7,
@@ -209,7 +305,10 @@ export const useAppStore = create<AppState>()(
 
       // ---- History / Project ----
       history: [],
-      addHistory: (item) => set((st) => ({ history: [...st.history, item].slice(-200) })),
+      addHistory: (item) =>
+        set((st) => ({
+          history: [...st.history, item].slice(-200),
+        })),
       clearHistory: () => set({ history: [] }),
       selectedHistoryId: null,
       selectHistory: (id) => set({ selectedHistoryId: id }),
@@ -221,7 +320,9 @@ export const useAppStore = create<AppState>()(
           const proj = st.currentProject;
           if (!proj) return {};
           const exists = proj.edits.some((e) => e.id === edit.id);
-          const next = exists ? proj.edits.map((e) => (e.id === edit.id ? edit : e)) : [...proj.edits, edit];
+          const next = exists
+            ? proj.edits.map((e) => (e.id === edit.id ? edit : e))
+            : [...proj.edits, edit];
           return { currentProject: { ...proj, edits: next.slice(-100) } };
         }),
       selectedEditId: null,
@@ -248,67 +349,77 @@ export const useAppStore = create<AppState>()(
     })),
     {
       name: 'dressup-store',
-      version: 6,
+      version: 7,
+      // Strong migration: coerce types + merge legacy flags so panels open by default
       migrate: (persisted) => {
         try {
           const st = (persisted as any)?.state ?? {};
-          if (st) {
-            // Panels: 旧名/新名すべて true に寄せる
-            const leftOpen =
-              toBool(st.sidebarOpen, true) ||
-              toBool(st.editorOpen, true) ||
-              toBool(st.isEditorOpen, true);
-            const rightOpen =
-              toBool(st.rightPanelOpen, true) ||
-              toBool(st.historyOpen, true) ||
-              toBool(st.isHistoryOpen, true);
 
-            st.sidebarOpen = leftOpen;
-            st.editorOpen = leftOpen;
-            st.isEditorOpen = leftOpen;
+          // Left panel open if any legacy flag says so; default true
+          const leftOpen =
+            toBool(st.sidebarOpen, true) ||
+            toBool(st.editorOpen, true) ||
+            toBool(st.isEditorOpen, true) ||
+            toBool(st.showPromptPanel, true);
 
-            st.rightPanelOpen = rightOpen;
-            st.historyOpen = rightOpen;
-            st.isHistoryOpen = rightOpen;
+          st.sidebarOpen = leftOpen;
+          st.editorOpen = leftOpen;
+          st.isEditorOpen = leftOpen;
+          st.showPromptPanel = leftOpen;
 
-            st.leftPanelWidth = clamp(toInt(st.leftPanelWidth ?? 288, 288), 160, 480);
-            st.rightPanelWidth = clamp(toInt(st.rightPanelWidth ?? 320, 320), 160, 560);
+          // Right panel open if any legacy flag says so; default true
+          const rightOpen =
+            toBool(st.rightPanelOpen, true) ||
+            toBool(st.historyOpen, true) ||
+            toBool(st.isHistoryOpen, true) ||
+            toBool(st.showHistory, true);
 
-            // View
-            st.canvasZoom = clamp(toNum(st.canvasZoom, 1), 0.1, 3);
-            st.canvasPan = sanitizePan(st.canvasPan ?? { x: 0, y: 0 });
+          st.rightPanelOpen = rightOpen;
+          st.historyOpen = rightOpen;
+          st.isHistoryOpen = rightOpen;
+          st.showHistory = rightOpen;
 
-            // Mask
-            st.showMasks = toBool(st.showMasks, false);
-            st.brushSize = clamp(toNum(st.brushSize, 12), 1, 200);
+          st.leftPanelWidth = clamp(toInt(st.leftPanelWidth ?? 288, 288), 160, 480);
+          st.rightPanelWidth = clamp(toInt(st.rightPanelWidth ?? 320, 320), 160, 560);
 
-            // Params
-            st.cfgScale = clamp(toNum(st.cfgScale, 7), 0, 30);
-            st.steps = clamp(toInt(st.steps, 28), 1, 200);
-            st.strength = clamp(toNum(st.strength, 0.7), 0, 1);
-            st.width = clamp(toInt(st.width, 1024), 64, 4096);
-            st.height = clamp(toInt(st.height, 1024), 64, 4096);
-            st.temperature = clamp(toNum(st.temperature, 0.7), 0, 1);
-            if (st.seed !== null && st.seed !== undefined) {
-              const n = toInt(st.seed, 0);
-              st.seed = Number.isFinite(n) ? n : null;
-            }
+          // View
+          st.canvasZoom = clamp(toNum(st.canvasZoom, 1), 0.1, 3);
+          st.canvasPan = sanitizePan(st.canvasPan ?? { x: 0, y: 0 });
 
-            if (!Array.isArray(st.history)) st.history = [];
+          // Mask
+          st.showMasks = toBool(st.showMasks, false);
+          st.brushSize = clamp(toNum(st.brushSize, 12), 1, 200);
+
+          // Params
+          st.cfgScale = clamp(toNum(st.cfgScale, 7), 0, 30);
+          st.steps = clamp(toInt(st.steps, 28), 1, 200);
+          st.strength = clamp(toNum(st.strength, 0.7), 0, 1);
+          st.width = clamp(toInt(st.width, 1024), 64, 4096);
+          st.height = clamp(toInt(st.height, 1024), 64, 4096);
+          st.temperature = clamp(toNum(st.temperature, 0.7), 0, 1);
+          if (st.seed !== null && st.seed !== undefined) {
+            const n = toInt(st.seed, 0);
+            st.seed = Number.isFinite(n) ? n : null;
           }
+
+          if (!Array.isArray(st.history)) st.history = [];
+
           return { ...persisted, state: st };
         } catch {
-          return { version: 6, state: undefined } as any;
+          return { version: 7, state: undefined } as any;
         }
       },
+      // Persist only what you need
       partialize: (st) => ({
-        // Panels
+        // Panels (all names for compatibility)
         sidebarOpen: st.sidebarOpen,
         rightPanelOpen: st.rightPanelOpen,
         editorOpen: st.editorOpen,
         isEditorOpen: st.isEditorOpen,
         historyOpen: st.historyOpen,
         isHistoryOpen: st.isHistoryOpen,
+        showPromptPanel: st.showPromptPanel,
+        showHistory: st.showHistory,
         leftPanelWidth: st.leftPanelWidth,
         rightPanelWidth: st.rightPanelWidth,
 
