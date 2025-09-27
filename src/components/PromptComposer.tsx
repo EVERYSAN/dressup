@@ -33,6 +33,9 @@ export const PromptComposer: React.FC = () => {
     clearBrushStrokes,
   } = useAppStore();
 
+  // ★ 追加：不変の Base 表示用（最初の1枚を保持）
+  const [baseImage, setBaseImage] = useState<string | null>(null);
+
   const { generate, isPending: isGenPending } = useImageGeneration();
   const { edit, isPending: isEditPending } = useImageEditing();
 
@@ -95,10 +98,12 @@ export const PromptComposer: React.FC = () => {
             addUploadedImage(dataUrl);
           }
         } else if (selectedTool === 'edit') {
-          // 最初の1枚は元画像（Base）、2枚目以降は参照
-          if (!canvasImage) {
+          // ★ 最初の1枚は Base（固定表示）＆ canvas（編集対象）に同時セット
+          if (!baseImage) {
+            setBaseImage(dataUrl);
             setCanvasImage(dataUrl);
           } else {
+            // 2枚目以降は参照に追加
             if (!editReferenceImages.includes(dataUrl) && editReferenceImages.length < 2) {
               addEditReferenceImage(dataUrl);
             }
@@ -119,6 +124,8 @@ export const PromptComposer: React.FC = () => {
     clearUploadedImages();
     clearEditReferenceImages();
     clearBrushStrokes();
+    // ★ Base と canvas を両方クリア
+    setBaseImage(null);
     setCanvasImage(null);
     setSeed(null);
     setTemperature(0.7);
@@ -203,7 +210,7 @@ export const PromptComposer: React.FC = () => {
             {selectedTool === 'generate' && <p className="text-xs text-gray-500 mb-3">Optional, up to 2 images</p>}
             {selectedTool === 'edit' && (
               <p className="text-xs text-gray-500 mb-3">
-                {canvasImage ? 'Optional style references, up to 2 images' : 'Upload image to edit, up to 2 images'}
+                {baseImage ? 'Optional style references, up to 2 images' : 'Upload image to edit, up to 2 images'}
               </p>
             )}
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
@@ -220,17 +227,21 @@ export const PromptComposer: React.FC = () => {
               Upload
             </Button>
 
-            {/* ★ Base Image (Edit mode only) */}
-            {selectedTool === 'edit' && canvasImage && (
+            {/* ★ Base Image（Editモードのみ、不変の baseImage を表示） */}
+            {selectedTool === 'edit' && baseImage && (
               <div className="mt-3 space-y-2">
                 <div className="relative">
                   <img
-                    src={canvasImage}
+                    src={baseImage}
                     alt="Base"
                     className="w-full h-24 object-cover rounded-lg border border-gray-700"
                   />
                   <button
-                    onClick={() => setCanvasImage(null)}
+                    onClick={() => {
+                      setBaseImage(null);
+                      setCanvasImage(null);
+                      clearEditReferenceImages();
+                    }}
                     className="absolute top-1 right-1 bg-white/80 text-gray-700 hover:text-gray-900 rounded-full p-1 transition-colors"
                     title="Clear base image"
                   >
