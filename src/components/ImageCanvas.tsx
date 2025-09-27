@@ -24,64 +24,92 @@ export const ImageCanvas: React.FC = () => {
     setBrushSize,
   } = useAppStore();
 
-  // 安全デフォルト
-  const z = typeof canvasZoom === 'number' && Number.isFinite(canvasZoom) ? canvasZoom : 1;
+  // ---- store 値の安全デフォルト ----
+  const z = Number.isFinite(canvasZoom) ? (canvasZoom as number) : 1;
   const pan = canvasPan ?? { x: 0, y: 0 };
   const strokes = Array.isArray(brushStrokes) ? brushStrokes : [];
 
+  // ---- DOM refs ----
   const stageRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // ---- local state ----
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentStroke, setCurrentStroke] = useState<number[]>([]);
+  const lastFittedSrcRef = useRef<string | null>(null); // 画像が変わった時だけオートフィット
 
-  // 画像の左上座標（ステージ座標）を計算
+  // ---- ステージサイズ追従（ResizeObserver で確実に）----
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const applySize = () => {
+      const rect = el.getBoundingClientRect();
+      const w = Math.max(1, Math.floor(rect.width));
+      const h = Math.max(1, Math.floor(rect.height));
+      setStageSize({ width: w, height: h });
+    };
+    applySize();
+
+    const ro = new ResizeObserver(() => applySize());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // ---- 画像の左上（ステージ座標）----
   const imageOffset = useMemo(() => {
     const iw = image?.width ?? 0;
     const ih = image?.height ?? 0;
+    // 画像をステージ中央に配置（ズーム前提）
     const x = (stageSize.width / z - iw) / 2;
     const y = (stageSize.height / z - ih) / 2;
     return { x, y };
   }, [image, stageSize, z]);
 
-  // 画像ロード & オートフィット
-  useEffect(() => {
-    if (canvasImage) {
-      const img = new window.Image();
-      img.onload = () => {
-        setImage(img);
-        // 初回のみ自動フィット（任意ロジック）
-        if (z === 1 && pan.x === 0 && pan.y === 0) {
-          const isMobile = window.innerWidth < 768;
-          const padding = isMobile ? 0.9 : 0.8;
-          const scaleX = (stageSize.width * padding) / img.width;
-          const scaleY = (stageSize.height * padding) / img.height;
-          const maxZoom = isMobile ? 0.3 : 0.8;
-          const optimalZoom = Math.min(scaleX, scaleY, maxZoom);
-          setCanvasZoom(Number.isFinite(optimalZoom) && optimalZoom > 0 ? optimalZoom : 1);
-          setCanvasPan({ x: 0, y: 0 });
-        }
-      };
-      img.src = canvasImage;
-    } else {
-      setImage(null);
-    }
-  }, [canvasImage, stageSize, setCanvasZoom, setCanvasPan]); // z/pan は依存に入れない
+  // ---- オートフィット helper ----
+  const fitToStage = (img: HTMLImageElement) => {
+    const W = stageSize.width;
+    const H = stageSize.height;
+    if (W <= 0 || H <= 0) return;
 
-  // ステージサイズ追従
+    // 画像がステージに収まる最大倍率（<= 1 を想定）を算出
+    // 余白のため padding を少し引く
+    const isMobile = window.innerWidth < 768;
+    const padding = isMobile ? 0.9 : 0.88; // 少し余白
+    const scaleX = (W * padding) / img.width;
+    const scaleY = (H * padding) / img.height;
+    const fit = Math.min(scaleX, scaleY);
+
+    // 上限下限でクランプ：ズーム UI との相性考慮（0.1〜3）
+    const clamped = Math.max(0.1, Math.min(3, fit));
+
+    setCanvasZoom(Number.isFinite(clamped) && clamped > 0 ? clamped : 1);
+    setCanvasPan({ x: 0, y: 0 });
+  };
+
+  // ---- 画像ロード ----
   useEffect(() => {
-    const updateSize = () => {
-      const container = document.getElementById('canvas-container');
-      if (container) {
-        setStageSize({ width: container.offsetWidth, height: container.offsetHeight });
+    if (!canvasImage) {
+      setImage(null);
+      lastFittedSrcRef.current = null;
+      return;
+    }
+    const img = new window.Image();
+    img.onload = () => {
+      setImage(img);
+
+      // 新しい画像に切り替わった時だけオートフィット
+      if (lastFittedSrcRef.current !== canvasImage) {
+        fitToStage(img);
+        lastFittedSrcRef.current = canvasImage;
       }
     };
-    updateSize();
-    window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
-  }, []);
+    img.src = canvasImage;
+  }, [canvasImage, stageSize.width, stageSize.height]); // ステージサイズが変わったタイミングでも最新画像でフィット可能
 
-  // ポインタ（相対座標）を安全取得
+  // ---- マウス座標 helper ----
   const getRelativePointerSafe = () => {
     const stage = stageRef.current;
     if (!stage?.getRelativePointerPosition) return null;
@@ -90,6 +118,7 @@ export const ImageCanvas: React.FC = () => {
     return pos;
   };
 
+  // ---- マスク描画 ----
   const handleMouseDown = () => {
     if (selectedTool !== 'mask' || !image) return;
     const pos = getRelativePointerSafe();
@@ -128,36 +157,30 @@ export const ImageCanvas: React.FC = () => {
     setCurrentStroke([]);
   };
 
+  // ---- ズーム & リセット ----
   const handleZoom = (delta: number) => {
     const newZoom = Math.max(0.1, Math.min(3, z + delta));
     setCanvasZoom(newZoom);
   };
 
   const handleReset = () => {
-    if (!image) return;
-    const isMobile = window.innerWidth < 768;
-    const padding = isMobile ? 0.9 : 0.8;
-    const scaleX = (stageSize.width * padding) / image.width;
-    const scaleY = (stageSize.height * padding) / image.height;
-    const maxZoom = isMobile ? 0.3 : 0.8;
-    const optimalZoom = Math.min(scaleX, scaleY, maxZoom);
-    setCanvasZoom(Number.isFinite(optimalZoom) && optimalZoom > 0 ? optimalZoom : 1);
-    setCanvasPan({ x: 0, y: 0 });
+    if (image) fitToStage(image);
   };
 
+  // ---- ダウンロード ----
   const handleDownload = () => {
     if (!canvasImage) return;
     if (canvasImage.startsWith('data:')) {
       const link = document.createElement('a');
       link.href = canvasImage;
-      link.download = `nano-banana-${Date.now()}.png`;
+      link.download = `dressup-${Date.now()}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     }
   };
 
-  // ステージ適用オフセット（ズーム込み）
+  // ---- ステージ適用オフセット（ズーム込み）----
   const panX = pan.x * z;
   const panY = pan.y * z;
 
@@ -228,48 +251,44 @@ export const ImageCanvas: React.FC = () => {
       </div>
 
       {/* Canvas Area */}
-      <div id="canvas-container" className="flex-1 relative overflow-hidden bg-white">
+      <div ref={containerRef} id="canvas-container" className="flex-1 relative overflow-hidden bg-white">
         {!image && !isGenerating && (
-        <div className="absolute inset-0 grid place-items-center px-4">
-          <div className="w-full max-w-xl rounded-2xl border border-gray-200 bg-white shadow-sm p-6">
-            <h2 className="text-2xl font-semibold text-gray-900 text-center tracking-tight">
-              DRESSUP へようこそ
-            </h2>
-            <p className="mt-2 text-sm text-gray-600 text-center">
-              3分で使い始められます。左の「Upload」からどうぞ。
-            </p>
-      
-            <ol className="mt-6 space-y-4 text-gray-800">
-              <li className="flex gap-3">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-900 text-white text-xs font-semibold">1</span>
-                <div className="leading-relaxed">
-                  <div className="font-medium">画像を2枚アップロード</div>
-                  <ul className="mt-1 ml-6 list-disc text-sm text-gray-600">
-                    <li>1枚目：変更元画像（モデルの人物写真）</li>
-                    <li>2枚目：差し替えたい画像（服やアクセサリーの写真）</li>
-                  </ul>
-                </div>
-              </li>
-
-        <li className="flex gap-3">
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-900 text-white text-xs font-semibold">2</span>
-          <div className="leading-relaxed">
-            <div className="font-medium">AIに指示</div>
-            <ul className="mt-1 ml-6 list-disc text-sm text-gray-600">
-              <li>「1枚目の服を2枚目の服に置き換えてください」</li>
-              <li>「1枚目の人物に2枚目のネックレスを追加してください」</li>
-            </ul>
+          <div className="absolute inset-0 grid place-items-center px-4">
+            <div className="w-full max-w-xl rounded-2xl border border-gray-200 bg-white shadow-sm p-6">
+              <h2 className="text-2xl font-semibold text-gray-900 text-center tracking-tight">
+                DRESSUP へようこそ
+              </h2>
+              <p className="mt-2 text-sm text-gray-600 text-center">
+                3分で使い始められます。左の「Upload」からどうぞ。
+              </p>
+              <ol className="mt-6 space-y-4 text-gray-800">
+                <li className="flex gap-3">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-900 text-white text-xs font-semibold">1</span>
+                  <div className="leading-relaxed">
+                    <div className="font-medium">画像を2枚アップロード</div>
+                    <ul className="mt-1 ml-6 list-disc text-sm text-gray-600">
+                      <li>1枚目：変更元画像（モデルの人物写真）</li>
+                      <li>2枚目：差し替えたい画像（服やアクセサリーの写真）</li>
+                    </ul>
+                  </div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-900 text-white text-xs font-semibold">2</span>
+                  <div className="leading-relaxed">
+                    <div className="font-medium">AIに指示</div>
+                    <ul className="mt-1 ml-6 list-disc text-sm text-gray-600">
+                      <li>「1枚目の服を2枚目の服に置き換えてください」</li>
+                      <li>「1枚目の人物に2枚目のネックレスを追加してください」</li>
+                    </ul>
+                  </div>
+                </li>
+              </ol>
+              <p className="mt-6 text-center text-xs text-gray-500">
+                ヒント：上部の <span className="font-medium">マスク</span> で部分指定ができます
+              </p>
+            </div>
           </div>
-        </li>
-      </ol>
-
-      <p className="mt-6 text-center text-xs text-gray-500">
-        ヒント：上部の <span className="font-medium">マスク</span> で部分指定ができます
-      </p>
-    </div>
-  </div>
-)}
-
+        )}
 
         {isGenerating && (
           <div className="absolute inset-0 flex items-center justify-center bg-white/70">
@@ -293,17 +312,13 @@ export const ImageCanvas: React.FC = () => {
             setCanvasPan({ x: e.target.x() / z, y: e.target.y() / z });
           }}
           onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}  // ← 大文字小文字修正
-          onMouseUp={handleMouseUp}      // ← 大文字小文字修正
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
           style={{ cursor: selectedTool === 'mask' ? 'crosshair' : 'default' }}
         >
           <Layer>
             {image && (
-              <KonvaImage
-                image={image}
-                x={imageOffset.x}
-                y={imageOffset.y}
-              />
+              <KonvaImage image={image} x={imageOffset.x} y={imageOffset.y} />
             )}
 
             {/* Brush Strokes */}
