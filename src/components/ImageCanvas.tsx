@@ -3,18 +3,17 @@ import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { Stage, Layer, Image as KonvaImage, Line } from 'react-konva';
 import { useAppStore } from '../store/useAppStore';
 import { Button } from './ui/Button';
-import { ZoomIn, ZoomOut, RotateCcw, Download, Eye, EyeOff, Eraser } from 'lucide-react';
+import { RotateCcw, Download, Eye, EyeOff, Eraser } from 'lucide-react';
 import { cn } from '../utils/cn';
 
+// 0.1〜3.0 のような「ズーム管理」はもう使わない。
+// すべて「コンテナに収まるスケール = fitScale」で描画する。
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 
 export const ImageCanvas: React.FC = () => {
   const {
     canvasImage,
-    canvasZoom,
-    setCanvasZoom,
-    canvasPan,
-    setCanvasPan,
+    // ズーム・パンは使わないが、既存ストアに残っていても無視する
     brushStrokes,
     addBrushStroke,
     clearBrushStrokes,
@@ -26,11 +25,6 @@ export const ImageCanvas: React.FC = () => {
     setBrushSize,
   } = useAppStore();
 
-  // === Store 値（安全デフォルト）
-  const z = Number.isFinite(canvasZoom) ? (canvasZoom as number) : 1;
-  const pan = canvasPan ?? { x: 0, y: 0 };
-  const strokes = Array.isArray(brushStrokes) ? brushStrokes : [];
-
   // === Refs
   const stageRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -40,12 +34,6 @@ export const ImageCanvas: React.FC = () => {
   const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentStroke, setCurrentStroke] = useState<number[]>([]);
-  const lastFittedSrcRef = useRef<string | null>(null);
-
-  // ピンチ用
-  const pinchStartDistRef = useRef<number | null>(null);
-  const pinchStartZoomRef = useRef<number>(1);
-  const pinchCenterRef = useRef<{ x: number; y: number } | null>(null);
 
   // === コンテナサイズ追従
   useEffect(() => {
@@ -65,86 +53,45 @@ export const ImageCanvas: React.FC = () => {
     return () => ro.disconnect();
   }, []);
 
-  // === 画像の左上（ズームを考慮した中央配置）
-  const imageOffset = useMemo(() => {
-    const iw = image?.width ?? 0;
-    const ih = image?.height ?? 0;
-    const x = (stageSize.width / z - iw) / 2;
-    const y = (stageSize.height / z - ih) / 2;
-    return { x, y };
-  }, [image, stageSize, z]);
-
-  // === その場ズーム（Stage の実値から計算）
-  const zoomAt = (point: { x: number; y: number }, nextZoom: number) => {
-    const stage = stageRef.current;
-    if (!stage) return;
-
-    const oldScale = stage.scaleX() || 1;
-    const oldX = stage.x() || 0;
-    const oldY = stage.y() || 0;
-
-    const newScale = clamp(nextZoom, 0.1, 3);
-
-    // いま見ている座標をスケール前の「論理座標」に変換
-    const mousePointTo = {
-      x: (point.x - oldX) / oldScale,
-      y: (point.y - oldY) / oldScale,
-    };
-
-    // 新しいスケールでのステージ左上（= pan*z）を再計算
-    const newStagePos = {
-      x: point.x - mousePointTo.x * newScale,
-      y: point.y - mousePointTo.y * newScale,
-    };
-
-    // pan は「スケール前の単位」で保持する
-    setCanvasZoom(newScale);
-    setCanvasPan({ x: newStagePos.x / newScale, y: newStagePos.y / newScale });
-  };
-
-  // === 初期フィット（拡大しない・100%上限）
-  const fitToStage = (img: HTMLImageElement) => {
-    const W = stageSize.width;
-    const H = stageSize.height;
-    if (W <= 0 || H <= 0) return;
-
-    const padding = 0.92;
-    const scaleX = (W * padding) / img.width;
-    const scaleY = (H * padding) / img.height;
-    const fit = Math.min(scaleX, scaleY);
-    const notZoomIn = Math.min(1, fit); // 100%を上限
-    const clamped = clamp(notZoomIn, 0.1, 3);
-
-    setCanvasZoom(clamped);
-    setCanvasPan({ x: 0, y: 0 });
-  };
-
   // === 画像ロード
   useEffect(() => {
     if (!canvasImage) {
       setImage(null);
-      lastFittedSrcRef.current = null;
       return;
     }
     const img = new Image();
-    img.onload = () => {
-      setImage(img);
-      // 新しい画像に切り替わった時だけフィット
-      if (lastFittedSrcRef.current !== canvasImage) {
-        fitToStage(img);
-        lastFittedSrcRef.current = canvasImage;
-      }
-    };
+    img.onload = () => setImage(img);
     img.src = canvasImage;
-  }, [canvasImage, stageSize.width, stageSize.height]);
+  }, [canvasImage]);
 
-  // === マスク描画
+  // === fitScale: 画像がコンテナに収まる倍率（拡大しない＝最大1）
+  const fitScale = useMemo(() => {
+    if (!image) return 1;
+    const padding = 0.92; // 余白（UIぶつかり回避）
+    const sx = (stageSize.width * padding) / image.width;
+    const sy = (stageSize.height * padding) / image.height;
+    const fit = Math.min(sx, sy);
+    // 小さい画像はぼかさないため等倍を上限にする
+    return clamp(fit, 0.1, 1);
+  }, [image, stageSize]);
+
+  // === ステージにおける画像の左上（fitScaleで中央配置）
+  const imageOffset = useMemo(() => {
+    const iw = image?.width ?? 0;
+    const ih = image?.height ?? 0;
+    const x = (stageSize.width / fitScale - iw) / 2;
+    const y = (stageSize.height / fitScale - ih) / 2;
+    return { x, y };
+  }, [image, stageSize, fitScale]);
+
+  // === マスク描画（ステージ座標は「スケール前」の論理座標で来る）
   const getRelativePointerSafe = () => {
     const stage = stageRef.current;
     if (!stage?.getRelativePointerPosition) return null;
     const pos = stage.getRelativePointerPosition();
     if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') return null;
     return pos;
+    // ここで得られる x/y は scale 適用前の座標系なのでそのまま扱える
   };
 
   const handleMouseDown = () => {
@@ -183,13 +130,10 @@ export const ImageCanvas: React.FC = () => {
     setCurrentStroke([]);
   };
 
-  // === ズームUI
-  const handleZoomButton = (delta: number) => {
-    const center = { x: stageSize.width / 2, y: stageSize.height / 2 };
-    zoomAt(center, z + delta);
-  };
   const handleReset = () => {
-    if (image) fitToStage(image);
+    // もはやズームやパンは無いが、「初期位置に戻す」意味で描画中を破棄
+    setIsDrawing(false);
+    setCurrentStroke([]);
   };
 
   // === ダウンロード
@@ -205,73 +149,19 @@ export const ImageCanvas: React.FC = () => {
     }
   };
 
-  // === ステージ適用オフセット（ズーム込み）
-  const panX = pan.x * z;
-  const panY = pan.y * z;
-
-  // === ホイールズーム
-  const handleWheel = (e: any) => {
-    e.evt.preventDefault();
-    const stage = stageRef.current;
-    if (!stage) return;
-    const pointer = stage.getPointerPosition();
-    if (!pointer) return;
-    const step = e.evt.deltaY > 0 ? -0.1 : 0.1; // 下スクロールで縮小
-    zoomAt(pointer, z + step);
-  };
-
-  // === ピンチズーム（スマホ）
-  const handleTouchStart = (e: any) => {
-    if (e.evt.touches?.length === 2) {
-      const [t1, t2] = e.evt.touches;
-      pinchStartDistRef.current = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-      pinchStartZoomRef.current = z;
-
-      const stage = stageRef.current;
-      if (stage) {
-        const rect = stage.container().getBoundingClientRect();
-        const cx = (t1.clientX + t2.clientX) / 2 - rect.left;
-        const cy = (t1.clientY + t2.clientY) / 2 - rect.top;
-        pinchCenterRef.current = { x: cx, y: cy };
-      }
-    }
-  };
-
-  const handleTouchMove = (e: any) => {
-    if (e.evt.touches?.length === 2 && pinchStartDistRef.current && pinchCenterRef.current) {
-      e.evt.preventDefault();
-      const [t1, t2] = e.evt.touches;
-      const newDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-      const scale = newDist / pinchStartDistRef.current;
-      const next = clamp(pinchStartZoomRef.current * scale, 0.1, 3);
-      zoomAt(pinchCenterRef.current, next);
-    }
-  };
-  const handleTouchEnd = () => {
-    pinchStartDistRef.current = null;
-    pinchCenterRef.current = null;
-  };
-
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar（前面・クリック可） */}
       <div className="p-3 border-b border-gray-200 bg-white relative z-10 pointer-events-auto">
         <div className="flex items-center justify-between">
+          {/* 左側：ズームUIは撤去、最低限だけ */}
           <div className="flex items-center space-x-2">
-            <Button variant="outline" size="sm" onClick={() => handleZoomButton(-0.1)}>
-              <ZoomOut className="h-4 w-4" />
-            </Button>
-            <span className="text-sm text-gray-600 min-w-[60px] text-center">
-              {Math.round(z * 100)}%
-            </span>
-            <Button variant="outline" size="sm" onClick={() => handleZoomButton(0.1)}>
-              <ZoomIn className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleReset}>
+            <Button variant="outline" size="sm" onClick={handleReset} title="初期状態に戻す">
               <RotateCcw className="h-4 w-4" />
             </Button>
           </div>
 
+          {/* 右側：マスク・DL等は従来通り */}
           <div className="flex items-center space-x-2">
             {selectedTool === 'mask' && (
               <>
@@ -291,7 +181,8 @@ export const ImageCanvas: React.FC = () => {
                   variant="outline"
                   size="sm"
                   onClick={clearBrushStrokes}
-                  disabled={strokes.length === 0}
+                  disabled={!Array.isArray(brushStrokes) || brushStrokes.length === 0}
+                  title="すべてのストロークを消去"
                 >
                   <Eraser className="h-4 w-4" />
                 </Button>
@@ -303,6 +194,7 @@ export const ImageCanvas: React.FC = () => {
               size="sm"
               onClick={() => setShowMasks(!showMasks)}
               className={cn(showMasks && 'bg-yellow-400/10 border-yellow-400/50')}
+              title="マスク表示切替"
             >
               {showMasks ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
               <span className="hidden sm:inline ml-2 text-gray-600">マスク</span>
@@ -370,26 +262,19 @@ export const ImageCanvas: React.FC = () => {
           </div>
         )}
 
-        {/* Konva Stage */}
+        {/* Konva Stage（fitScale で常にコンテナ内に収める） */}
         <Stage
           ref={stageRef}
           width={stageSize.width}
           height={stageSize.height}
-          scaleX={z}
-          scaleY={z}
-          x={panX}
-          y={panY}
-          draggable={selectedTool !== 'mask'}
-          onDragEnd={(e) => {
-            setCanvasPan({ x: e.target.x() / z, y: e.target.y() / z });
-          }}
+          scaleX={fitScale}
+          scaleY={fitScale}
+          x={0}
+          y={0}
+          draggable={false} // パン不可（常にフィット）
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
-          onWheel={handleWheel}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
           style={{ cursor: selectedTool === 'mask' ? 'crosshair' : 'default' }}
         >
           <Layer>
@@ -397,7 +282,8 @@ export const ImageCanvas: React.FC = () => {
 
             {/* 既存マスク（表示切替可能） */}
             {showMasks &&
-              strokes.map((stroke) => (
+              Array.isArray(brushStrokes) &&
+              brushStrokes.map((stroke) => (
                 <Line
                   key={stroke.id}
                   points={Array.isArray(stroke.points) ? stroke.points : []}
@@ -436,9 +322,9 @@ export const ImageCanvas: React.FC = () => {
       <div className="p-3 border-t border-gray-200 bg-white">
         <div className="flex items-center justify-between text-xs text-gray-600">
           <div className="flex items-center space-x-4">
-            {strokes.length > 0 && (
+            {Array.isArray(brushStrokes) && brushStrokes.length > 0 && (
               <span className="text-yellow-600">
-                {strokes.length} brush stroke{strokes.length !== 1 ? 's' : ''}
+                {brushStrokes.length} brush stroke{brushStrokes.length !== 1 ? 's' : ''}
               </span>
             )}
           </div>
