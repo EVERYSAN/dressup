@@ -3,53 +3,38 @@
 @tailwind components;
 @tailwind utilities;
 
-* {
-  box-sizing: border-box;
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;       /* ← h-screen を正しく効かせるために必須 */
 }
 
+/* 縦スクロールは許可し、横だけ抑制 */
 body {
   font-family: 'Inter', sans-serif;
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
-  overflow: hidden;
+  overflow-x: hidden;  /* ← 以前の overflow: hidden を修正 */
 }
 
 /* Custom scrollbar for dark theme */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: #f8fafc;
-}
-
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #f8fafc; }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;   /* slate-300 相当 */
+  background: #cbd5e1;
   border-radius: 8px;
-  border: 2px solid #f8fafc; /* トラック色と合わせて軽く */
+  border: 2px solid #f8fafc;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;   /* slate-400 相当 */
-}
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
 /* Custom range slider styling */
 .slider::-webkit-slider-thumb {
   appearance: none;
-  height: 16px;
-  width: 16px;
-  border-radius: 50%;
-  background: #FDE047;
-  cursor: pointer;
-  border: 2px solid #1F2937;
+  height: 16px; width: 16px; border-radius: 50%;
+  background: #FDE047; cursor: pointer; border: 2px solid #1F2937;
 }
-
 .slider::-moz-range-thumb {
-  height: 16px;
-  width: 16px;
-  border-radius: 50%;
-  background: #FDE047;
-  cursor: pointer;
-  border: 2px solid #1F2937;
+  height: 16px; width: 16px; border-radius: 50%;
+  background: #FDE047; cursor: pointer; border: 2px solid #1F2937;
 }
 
 /* Marching ants animation */
@@ -57,17 +42,10 @@ body {
   0% { stroke-dashoffset: 0; }
   100% { stroke-dashoffset: 10; }
 }
-
-.marching-ants {
-  stroke-dasharray: 5 5;
-  animation: marching-ants 0.5s linear infinite;
-}
+.marching-ants { stroke-dasharray: 5 5; animation: marching-ants 0.5s linear infinite; }
 
 /* Focus styles for accessibility */
-*:focus-visible {
-  outline: 2px solid #3b82f6; /* blue-500 */
-  outline-offset: 2px;
-}
+*:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
 
 /* Smooth transitions */
 * {
