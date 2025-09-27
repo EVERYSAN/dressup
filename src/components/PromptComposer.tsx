@@ -16,8 +16,12 @@ import { PromptHints } from './PromptHints';
 import { cn } from '../utils/cn';
 import { resizeFileToDataURL, base64SizeMB } from '../utils/resizeImage';
 
+const safeStr = (v: unknown) =>
+  typeof v === 'string' ? v : v == null ? '' : String(v);
+
 export const PromptComposer: React.FC = () => {
   const {
+    // prompts
     currentPrompt,
     setCurrentPrompt,
     temperature,
@@ -25,6 +29,7 @@ export const PromptComposer: React.FC = () => {
     seed,
     setSeed,
 
+    // images (storeに無い場合もあるので安全に扱う)
     editReferenceImages,
     addEditReferenceImage,
     removeEditReferenceImage,
@@ -32,13 +37,36 @@ export const PromptComposer: React.FC = () => {
 
     setCanvasImage,
 
+    // panel visibility
     showPromptPanel,
     setShowPromptPanel,
+
+    // mask / session utils
     clearBrushStrokes,
 
+    // history / project (無い環境もあるのでno-opでガード)
     ensureProject,
     addEdit,
   } = useAppStore();
+
+  // === 安全フォールバック ===
+  const refImages: string[] = Array.isArray(editReferenceImages) ? editReferenceImages : [];
+  const addRef = typeof addEditReferenceImage === 'function' ? addEditReferenceImage : (_: string) => {};
+  const removeRef = typeof removeEditReferenceImage === 'function' ? removeEditReferenceImage : (_: number) => {};
+  const clearRefs = typeof clearEditReferenceImages === 'function' ? clearEditReferenceImages : () => {};
+
+  const ensureProj = typeof ensureProject === 'function' ? ensureProject : () => {};
+  const addEditSafe =
+    typeof addEdit === 'function'
+      ? addEdit
+      : (_: {
+          id: string;
+          instruction: string;
+          parentGenerationId: string | null;
+          maskReferenceAsset: string | null;
+          outputAssets: { id: string; url: string }[];
+          timestamp: number;
+        }) => {};
 
   // Base はローカルで管理（不変に保つ）
   const [baseImage, setBaseImage] = useState<string | null>(null);
@@ -51,11 +79,11 @@ export const PromptComposer: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleApplyEdit = async () => {
-    const prompt = currentPrompt.trim();
+    const prompt = safeStr(currentPrompt).trim(); // ← 常に文字列
     if (!prompt || !baseImage) return;
 
     // Vercel Edge 対策：payload を控えめに
-    const approxTotalMB = [baseImage, editReferenceImages[0]]
+    const approxTotalMB = [baseImage, refImages[0]]
       .filter(Boolean)
       .reduce((s, d) => s + base64SizeMB(d as string), 0);
 
@@ -68,7 +96,7 @@ export const PromptComposer: React.FC = () => {
       const resp: any = await edit({
         prompt,
         image1: baseImage,
-        image2: editReferenceImages[0] || null,
+        image2: refImages[0] || null,
       });
 
       const parts = resp?.candidates?.[0]?.content?.parts;
@@ -76,11 +104,11 @@ export const PromptComposer: React.FC = () => {
       if (img?.data) {
         const mime = img?.mimeType || 'image/png';
         const dataUrl = `data:${mime};base64,${img.data}`;
-        setCanvasImage(dataUrl);
+        setCanvasImage?.(dataUrl);
 
         // 履歴に追加
-        ensureProject();
-        addEdit({
+        ensureProj();
+        addEditSafe({
           id: `edit-${Date.now()}`,
           instruction: prompt,
           parentGenerationId: null,
@@ -107,10 +135,10 @@ export const PromptComposer: React.FC = () => {
 
         if (!baseImage) {
           setBaseImage(dataUrl);
-          setCanvasImage(dataUrl);
+          setCanvasImage?.(dataUrl);
         } else {
-          if (!editReferenceImages.includes(dataUrl) && editReferenceImages.length < 2) {
-            addEditReferenceImage(dataUrl);
+          if (!refImages.includes(dataUrl) && refImages.length < 2) {
+            addRef(dataUrl);
           }
         }
       } catch (error) {
@@ -120,13 +148,13 @@ export const PromptComposer: React.FC = () => {
   };
 
   const handleClearSession = () => {
-    setCurrentPrompt('');
-    clearEditReferenceImages();
-    clearBrushStrokes();
+    setCurrentPrompt?.('');
+    clearRefs();
+    clearBrushStrokes?.();
     setBaseImage(null);
-    setCanvasImage(null);
-    setSeed(null);
-    setTemperature(0.7);
+    setCanvasImage?.(null as any);
+    setSeed?.(null);
+    setTemperature?.(0.7 as any);
     setShowClearConfirm(false);
   };
 
@@ -134,7 +162,7 @@ export const PromptComposer: React.FC = () => {
     return (
       <div className="w-8 bg-gray-950 border-r border-gray-200 flex flex-col items-center justify-center">
         <button
-          onClick={() => setShowPromptPanel(true)}
+          onClick={() => setShowPromptPanel?.(true)}
           className="w-6 h-16 bg-gray-800 hover:bg-gray-700 rounded-r-lg border border-l-0 border-gray-700 flex items-center justify-center transition-colors group"
           title="左パネルを表示"
         >
@@ -148,7 +176,9 @@ export const PromptComposer: React.FC = () => {
     );
   }
 
-  const hasPrompt = currentPrompt.trim().length > 0;
+  const promptText = safeStr(currentPrompt).trim();
+  const promptLen = promptText.length;
+  const hasPrompt = promptLen > 0;
   const canEdit = hasPrompt && !!baseImage && !isEditPending;
 
   return (
@@ -174,7 +204,7 @@ export const PromptComposer: React.FC = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => setShowPromptPanel(false)}
+                onClick={() => setShowPromptPanel?.(false)}
                 className="h-7 w-7"
                 title="左パネルを隠す"
               >
@@ -217,8 +247,8 @@ export const PromptComposer: React.FC = () => {
                 <button
                   onClick={() => {
                     setBaseImage(null);
-                    setCanvasImage(null);
-                    clearEditReferenceImages();
+                    setCanvasImage?.(null as any);
+                    clearRefs();
                   }}
                   className="absolute top-1 right-1 bg-gray-900/70 text-white hover:bg-gray-900 rounded-full p-1 transition-colors"
                   title="ベース画像を削除"
@@ -233,9 +263,9 @@ export const PromptComposer: React.FC = () => {
           )}
 
           {/* Refs */}
-          {editReferenceImages.length > 0 && (
+          {refImages.length > 0 && (
             <div className="mt-3 space-y-2">
-              {editReferenceImages.map((image, index) => (
+              {refImages.map((image, index) => (
                 <div key={index} className="relative">
                   <img
                     src={image}
@@ -243,7 +273,7 @@ export const PromptComposer: React.FC = () => {
                     className="aspect-square w-full max-h-[220px] object-cover rounded-lg border border-emerald-200 shadow-sm bg-white"
                   />
                   <button
-                    onClick={() => removeEditReferenceImage(index)}
+                    onClick={() => removeRef(index)}
                     className="absolute top-1 right-1 bg-gray-900/70 text-white hover:bg-gray-900 rounded-full p-1 transition-colors"
                     title="削除"
                   >
@@ -262,8 +292,8 @@ export const PromptComposer: React.FC = () => {
         <div>
           <label className="text-sm font-medium text-gray-800 mb-3 block">変更内容の指示</label>
           <Textarea
-            value={currentPrompt}
-            onChange={(e) => setCurrentPrompt(e.target.value)}
+            value={safeStr(currentPrompt)}
+            onChange={(e) => setCurrentPrompt?.(e.target.value)}
             placeholder="例）1枚目の服を2枚目の服に置き換えてください（ポーズ・光は維持）"
             className="min-h-[120px] resize-none bg-white border border-emerald-200 text-gray-900 placeholder:text-gray-400 focus:border-emerald-300 focus:ring-0"
           />
@@ -272,20 +302,20 @@ export const PromptComposer: React.FC = () => {
             onClick={() => setShowHintsModal(true)}
             className="mt-2 flex items-center text-xs transition-colors group"
           >
-            {currentPrompt.length < 20 ? (
+            {promptLen < 20 ? (
               <HelpCircle className="h-3 w-3 mr-2 text-red-500 group-hover:text-red-400" />
             ) : (
               <div
                 className={cn(
                   'h-2 w-2 rounded-full mr-2',
-                  currentPrompt.length < 50 ? 'bg-yellow-500' : 'bg-green-500'
+                  promptLen < 50 ? 'bg-yellow-500' : 'bg-green-500'
                 )}
               />
             )}
             <span className="text-gray-600 group-hover:text-gray-700">
-              {currentPrompt.length < 20
+              {promptLen < 20
                 ? '詳しく書くと精度が上がります'
-                : currentPrompt.length < 50
+                : promptLen < 50
                 ? '十分な詳細です'
                 : 'とても良い詳細です'}
             </span>
@@ -360,8 +390,8 @@ export const PromptComposer: React.FC = () => {
                   min="0"
                   max="1"
                   step="0.1"
-                  value={temperature}
-                  onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                  value={typeof temperature === 'number' ? temperature : 0.7}
+                  onChange={(e) => setTemperature?.(parseFloat(e.target.value))}
                   className="w-full h-2 bg-emerald-100 rounded-lg appearance-none cursor-pointer slider"
                 />
               </div>
@@ -369,8 +399,8 @@ export const PromptComposer: React.FC = () => {
                 <label className="text-xs text-gray-700 mb-2 block">シード（任意）</label>
                 <input
                   type="number"
-                  value={seed || ''}
-                  onChange={(e) => setSeed(e.target.value ? parseInt(e.target.value) : null)}
+                  value={seed ?? ''}
+                  onChange={(e) => setSeed?.(e.target.value ? parseInt(e.target.value, 10) : null)}
                   placeholder="ランダム"
                   className="w-full h-8 px-2 bg-white border border-emerald-200 rounded text-xs text-gray-900 placeholder:text-gray-400 focus:border-emerald-300 focus:ring-0"
                 />
