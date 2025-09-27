@@ -129,7 +129,7 @@ export const PromptComposer: React.FC = () => {
         <button
           onClick={() => setShowPromptPanel(true)}
           className="w-6 h-16 bg-gray-800 hover:bg-gray-700 rounded-r-lg border border-l-0 border-gray-700 flex items-center justify-center transition-colors group"
-          title="Show Prompt Panel"
+          title="左パネルを表示"
         >
           <div className="flex flex-col space-y-1">
             <div className="w-1 h-1 bg-gray-500 group-hover:bg-gray-400 rounded-full" />
@@ -150,10 +150,10 @@ export const PromptComposer: React.FC = () => {
         {/* Header（Edit固定） */}
         <div className="flex items-center justify-between mb-3">
           <div>
-            <h3 className="text-sm font-medium text-gray-800">Edit</h3>
+            <h3 className="text-sm font-medium text-gray-800">編集</h3>
           </div>
           <div className="flex items-center space-x-1">
-            <Button variant="ghost" size="icon" onClick={() => setShowHintsModal(true)} className="h-6 w-6">
+            <Button variant="ghost" size="icon" onClick={() => setShowHintsModal(true)} className="h-6 w-6" title="ヒント">
               <HelpCircle className="h-4 w-4 text-emerald-600" />
             </Button>
             <Button
@@ -161,7 +161,7 @@ export const PromptComposer: React.FC = () => {
               size="icon"
               onClick={() => setShowPromptPanel(false)}
               className="h-6 w-6"
-              title="Hide Prompt Panel"
+              title="左パネルを隠す"
             >
               ×
             </Button>
@@ -170,29 +170,29 @@ export const PromptComposer: React.FC = () => {
 
         {/* Uploads */}
         <div>
-          <label className="text-sm font-medium text-gray-800 mb-2 block">Style References</label>
+          <label className="text-sm font-medium text-gray-800 mb-2 block">参照画像</label>
 
-          {/* 2) Upload を白カード化 */}
+          {/* Upload（英語のまま） */}
           <div className="rounded-lg bg-white border border-emerald-200 p-2 shadow-sm">
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
             <Button
               variant="outline"
               onClick={() => fileInputRef.current?.click()}
               className="w-full text-emerald-700 border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400 font-medium"
+              title="画像をアップロード"
             >
               <Upload className="h-4 w-4 mr-2 text-emerald-700" />
               Upload
             </Button>
-
           </div>
 
-          {/* Base（正方形・白カード＆淡ボーダー） */}
+          {/* Base（正方形） */}
           {baseImage && (
             <div className="mt-3 space-y-2">
               <div className="relative">
                 <img
                   src={baseImage}
-                  alt="Base"
+                  alt="ベース画像"
                   className="aspect-square w-full max-h-[260px] object-cover rounded-lg border border-emerald-200 shadow-sm bg-white"
                 />
                 <button
@@ -202,36 +202,36 @@ export const PromptComposer: React.FC = () => {
                     clearEditReferenceImages();
                   }}
                   className="absolute top-1 right-1 bg-gray-900/70 text-white hover:bg-gray-900 rounded-full p-1 transition-colors"
-                  title="Clear base image"
+                  title="ベース画像を削除"
                 >
                   ×
                 </button>
                 <div className="absolute bottom-1 left-1 bg-emerald-600/90 text-white text-xs px-2 py-1 rounded font-medium">
-                  Base
+                  ベース
                 </div>
               </div>
             </div>
           )}
 
-          {/* Refs（白カード＆淡ボーダー） */}
+          {/* Refs */}
           {editReferenceImages.length > 0 && (
             <div className="mt-3 space-y-2">
               {editReferenceImages.map((image, index) => (
                 <div key={index} className="relative">
                   <img
                     src={image}
-                    alt={`Reference ${index + 1}`}
+                    alt={`参照 ${index + 1}`}
                     className="aspect-square w-full max-h-[220px] object-cover rounded-lg border border-emerald-200 shadow-sm bg-white"
                   />
                   <button
                     onClick={() => removeEditReferenceImage(index)}
                     className="absolute top-1 right-1 bg-gray-900/70 text-white hover:bg-gray-900 rounded-full p-1 transition-colors"
-                    title="Remove"
+                    title="削除"
                   >
                     ×
                   </button>
                   <div className="absolute bottom-1 left-1 bg-emerald-600/90 text-white text-xs px-2 py-1 rounded">
-                    Ref {index + 1}
+                    参照 {index + 1}
                   </div>
                 </div>
               ))}
@@ -241,11 +241,11 @@ export const PromptComposer: React.FC = () => {
 
         {/* Prompt */}
         <div>
-          <label className="text-sm font-medium text-gray-800 mb-3 block">Describe your changes</label>
+          <label className="text-sm font-medium text-gray-800 mb-3 block">変更内容の指示</label>
           <Textarea
             value={currentPrompt}
             onChange={(e) => setCurrentPrompt(e.target.value)}
-            placeholder="Replace the 1st outfit with the 2nd reference; keep pose and lighting..."
+            placeholder="例）1枚目の服を2枚目の服に置き換えてください（ポーズ・光は維持）"
             className="min-h-[120px] resize-none bg-white border border-emerald-200 text-gray-900 placeholder:text-gray-400 focus:border-emerald-300 focus:ring-0"
           />
 
@@ -256,10 +256,19 @@ export const PromptComposer: React.FC = () => {
             {currentPrompt.length < 20 ? (
               <HelpCircle className="h-3 w-3 mr-2 text-red-500 group-hover:text-red-400" />
             ) : (
-              <div className={cn('h-2 w-2 rounded-full mr-2', currentPrompt.length < 50 ? 'bg-yellow-500' : 'bg-green-500')} />
+              <div
+                className={cn(
+                  'h-2 w-2 rounded-full mr-2',
+                  currentPrompt.length < 50 ? 'bg-yellow-500' : 'bg-green-500'
+                )}
+              />
             )}
             <span className="text-gray-600 group-hover:text-gray-700">
-              {currentPrompt.length < 20 ? 'Add detail for better results' : currentPrompt.length < 50 ? 'Good detail level' : 'Excellent prompt detail'}
+              {currentPrompt.length < 20
+                ? '詳しく書くと精度が上がります'
+                : currentPrompt.length < 50
+                ? '十分な詳細です'
+                : 'とても良い詳細です'}
             </span>
           </button>
         </div>
@@ -274,17 +283,17 @@ export const PromptComposer: React.FC = () => {
                      disabled:border disabled:border-emerald-400
                      disabled:shadow-none disabled:hover:bg-white disabled:hover:text-emerald-800
                      disabled:cursor-not-allowed"
+          title="画像を編集"
         >
-
           {isEditPending ? (
             <>
               <div className="animate-spin rounded-full h-4 w-4 mr-2 group-disabled:text-emerald-700" />
-              Applying...
+              編集中…
             </>
           ) : (
             <>
               <Edit3 className="h-4 w-4 mr-2 group-disabled:text-emerald-700" />
-              Apply Edit
+              画像を編集
             </>
           )}
         </Button>
@@ -296,7 +305,7 @@ export const PromptComposer: React.FC = () => {
             className="flex items-center text-sm text-gray-700 hover:text-gray-900 transition-colors duration-200"
           >
             {showAdvanced ? <ChevronDown className="h-4 w-4 mr-1" /> : <ChevronRight className="h-4 w-4 mr-1" />}
-            {showAdvanced ? 'Hide' : 'Show'} Advanced Controls
+            {showAdvanced ? '詳細設定を隠す' : '詳細設定を表示'}
           </button>
 
           <button
@@ -304,20 +313,20 @@ export const PromptComposer: React.FC = () => {
             className="flex items-center text-sm text-gray-700 hover:text-red-500 transition-colors duration-200 mt-2"
           >
             <RotateCcw className="h-4 w-4 mr-2" />
-            Clear Session
+            セッションをクリア
           </button>
 
           {showClearConfirm && (
             <div className="mt-3 p-3 bg-white rounded-lg border border-emerald-200">
               <p className="text-xs text-gray-700 mb-3">
-                Are you sure you want to clear this session? This will remove all uploads, prompts, and canvas content.
+                現在のセッションをクリアします。アップロードした画像や指示、キャンバスの内容が削除されます。よろしいですか？
               </p>
               <div className="flex space-x-2">
                 <Button variant="destructive" size="sm" onClick={handleClearSession} className="flex-1">
-                  Yes, Clear
+                  クリアする
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => setShowClearConfirm(false)} className="flex-1">
-                  Cancel
+                  キャンセル
                 </Button>
               </div>
             </div>
@@ -326,7 +335,7 @@ export const PromptComposer: React.FC = () => {
           {showAdvanced && (
             <div className="mt-4 space-y-4">
               <div>
-                <label className="text-xs text-gray-700 mb-2 block">Creativity ({temperature})</label>
+                <label className="text-xs text-gray-700 mb-2 block">クリエイティビティ（{temperature}）</label>
                 <input
                   type="range"
                   min="0"
@@ -338,12 +347,12 @@ export const PromptComposer: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-700 mb-2 block">Seed (optional)</label>
+                <label className="text-xs text-gray-700 mb-2 block">シード（任意）</label>
                 <input
                   type="number"
                   value={seed || ''}
                   onChange={(e) => setSeed(e.target.value ? parseInt(e.target.value) : null)}
-                  placeholder="Random"
+                  placeholder="ランダム"
                   className="w-full h-8 px-2 bg-white border border-emerald-200 rounded text-xs text-gray-900 placeholder:text-gray-400 focus:border-emerald-300 focus:ring-0"
                 />
               </div>
@@ -353,10 +362,10 @@ export const PromptComposer: React.FC = () => {
 
         {/* Shortcuts */}
         <div className="pt-4 border-t border-emerald-100">
-          <h4 className="text-xs font-medium text-gray-700 mb-2">Shortcuts</h4>
+          <h4 className="text-xs font-medium text-gray-700 mb-2">ショートカット</h4>
           <div className="space-y-1 text-xs text-gray-600">
-            <div className="flex justify-between"><span>History</span><span>H</span></div>
-            <div className="flex justify-between"><span>Toggle Panel</span><span>P</span></div>
+            <div className="flex justify-between"><span>履歴</span><span>H</span></div>
+            <div className="flex justify-between"><span>パネル表示切替</span><span>P</span></div>
           </div>
         </div>
       </div>
