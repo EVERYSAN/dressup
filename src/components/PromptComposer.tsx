@@ -145,11 +145,11 @@ export const PromptComposer: React.FC = () => {
 
   return (
     <>
-      <div className="w-80 lg:w-72 xl:w-80 h-full bg-gray-950 border-r border-gray-200 p-6 flex flex-col space-y-6 overflow-y-auto">
+      <div className="w-80 lg:w-72 xl:w-80 h-full bg-emerald-50 border-r border-emerald-100 p-6 flex flex-col space-y-6 overflow-y-auto shadow-sm">
         {/* Header（Edit固定・説明文は削除） */}
         <div className="flex items-center justify-between mb-3">
           <div>
-            <h3 className="text-sm font-medium text-gray-300">Edit</h3>
+            <h3 className="text-sm font-medium text-gray-800">Edit</h3>
           </div>
           <div className="flex items-center space-x-1">
             <Button variant="ghost" size="icon" onClick={() => setShowHintsModal(true)} className="h-6 w-6">
@@ -169,7 +169,7 @@ export const PromptComposer: React.FC = () => {
 
         {/* Uploads */}
         <div>
-          <label className="text-sm font-medium text-gray-300 mb-2 block">Style References</label>
+          <label className="text-sm font-medium text-gray-800 mb-2 block">Style References</label>
 
           <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
           <Button variant="outline" onClick={() => fileInputRef.current?.click()} className="w-full">
@@ -184,7 +184,7 @@ export const PromptComposer: React.FC = () => {
                 <img
                   src={baseImage}
                   alt="Base"
-                  className="aspect-square w-full max-h-[260px] object-cover rounded-lg border border-gray-700"
+                  className="aspect-square w-full max-h-[260px] object-cover rounded-lg border border-emerald-200 shadow-sm"
                 />
                 <button
                   onClick={() => {
@@ -197,7 +197,7 @@ export const PromptComposer: React.FC = () => {
                 >
                   ×
                 </button>
-                <div className="absolute bottom-1 left-1 bg-white/80 text-xs px-2 py-1 rounded text-gray-700 font-medium">
+                <div className="absolute bottom-1 left-1 bg-emerald-600/90 text-white text-xs px-2 py-1 rounded font-medium">
                   Base
                 </div>
               </div>
@@ -212,16 +212,16 @@ export const PromptComposer: React.FC = () => {
                   <img
                     src={image}
                     alt={`Reference ${index + 1}`}
-                    className="aspect-square w-full max-h-[220px] object-cover rounded-lg border border-gray-700"
+                    className="aspect-square w-full max-h-[220px] object-cover rounded-lg border border-emerald-200 shadow-sm"
                   />
                   <button
                     onClick={() => removeEditReferenceImage(index)}
-                    className="absolute top-1 right-1 bg-white/80 text-gray-700 hover:text-gray-900 rounded-full p-1 transition-colors"
+                    className="absolute top-1 right-1 bg-gray-900/70 text-white hover:bg-gray-900 rounded-full p-1 transition-colors"
                     title="Remove"
                   >
                     ×
                   </button>
-                  <div className="absolute bottom-1 left-1 bg-white/80 text-xs px-2 py-1 rounded text-gray-700">
+                  <div className="absolute bottom-1 left-1 bg-emerald-600/90 text-white text-xs px-2 py-1 rounded">
                     Ref {index + 1}
                   </div>
                 </div>
@@ -232,13 +232,13 @@ export const PromptComposer: React.FC = () => {
 
         {/* Prompt */}
         <div>
-          <label className="text-sm font-medium text-gray-300 mb-3 block">Describe your changes</label>
+          <label className="text-sm font-medium text-gray-800 mb-3 block">Describe your changes</label>
           <Textarea
-            value={currentPrompt}
-            onChange={(e) => setCurrentPrompt(e.target.value)}
-            placeholder={'Replace the 1st outfit with the 2nd reference; keep pose and lighting...'}
-            className="min-h-[120px] resize-none"
-          />
+          value={currentPrompt}
+          onChange={(e) => setCurrentPrompt(e.target.value)}
+          placeholder="Replace the 1st outfit with the 2nd reference; keep pose and lighting..."
+          className="min-h-[120px] resize-none bg-white border border-emerald-200 text-gray-900 placeholder:text-gray-400 focus:border-emerald-300 focus:ring-0"
+        />
 
           <button
             onClick={() => setShowHintsModal(true)}
@@ -256,10 +256,10 @@ export const PromptComposer: React.FC = () => {
         </div>
 
         {/* Execute */}
-        <Button onClick={handleApplyEdit} disabled={!canEdit} className="w-full h-14 text-base font-medium">
+        <Button onClick={handleApplyEdit} disabled={!canEdit} className="w-full h-14 text-base font-medium bg-emerald-600 hover:bg-emerald-700 text-white">
           {isEditPending ? (
             <>
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900 mr-2" />
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/80 mr-2" />
               Applying...
             </>
           ) : (
