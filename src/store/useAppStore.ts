@@ -57,6 +57,10 @@ const toInt = (v: unknown, fb: number) => Math.trunc(toNum(v, fb));
 const toBool = (v: unknown, fb = false) =>
   typeof v === 'boolean' ? v : v === 'true' ? true : v === 'false' ? false : fb;
 
+// ← ここがポイント：undefined/null/非文字列でも安全に空文字へ、かつ trim
+const safeStr = (v: unknown): string =>
+  typeof v === 'string' ? v.trim() : v == null ? '' : String(v).trim();
+
 const sanitizePan = (p: any): Pan => ({
   x: Number.isFinite(p?.x) ? p.x : 0,
   y: Number.isFinite(p?.y) ? p.y : 0,
@@ -70,7 +74,7 @@ export type AppState = {
   rightPanelOpen: boolean; // right (new)
   setRightPanelOpen: (v: boolean) => void;
 
-  // Backward-compat aliases (keep UI working without changing components)
+  // Backward-compat aliases
   editorOpen: boolean;
   setEditorOpen: (v: boolean) => void;
   isEditorOpen: boolean;
@@ -81,7 +85,7 @@ export type AppState = {
   isHistoryOpen: boolean;
   setIsHistoryOpen: (v: boolean) => void;
 
-  // Legacy names used by App.tsx (critical for your error):
+  // Legacy names used by App.tsx
   showPromptPanel: boolean;
   setShowPromptPanel: (v: boolean) => void;
   showHistory: boolean;
@@ -167,12 +171,11 @@ export type AppState = {
 export const useAppStore = create<AppState>()(
   persist(
     devtools((set, get) => ({
-      // ---- Panels (default to open so they never "disappear") ----
+      // ---- Panels ----
       sidebarOpen: true,
       setSidebarOpen: (v) =>
         set({
           sidebarOpen: !!v,
-          // sync all left-panel aliases
           editorOpen: !!v,
           isEditorOpen: !!v,
           showPromptPanel: !!v,
@@ -182,13 +185,12 @@ export const useAppStore = create<AppState>()(
       setRightPanelOpen: (v) =>
         set({
           rightPanelOpen: !!v,
-          // sync all right-panel aliases
           historyOpen: !!v,
           isHistoryOpen: !!v,
           showHistory: !!v,
         }),
 
-      // Aliases — any component reading old names will still work
+      // Aliases
       editorOpen: true,
       setEditorOpen: (v) =>
         set({
@@ -273,9 +275,9 @@ export const useAppStore = create<AppState>()(
 
       // ---- Prompts / Params ----
       instruction: '',
-      setInstruction: (v) => set({ instruction: v ?? '' }),
+      setInstruction: (v) => set({ instruction: safeStr(v) }), // ← trim 安全
       negativePrompt: '',
-      setNegativePrompt: (v) => set({ negativePrompt: v ?? '' }),
+      setNegativePrompt: (v) => set({ negativePrompt: safeStr(v) }), // ← trim 安全
 
       cfgScale: 7,
       setCfgScale: (v) => set({ cfgScale: clamp(toNum(v, 7), 0, 30) }),
@@ -349,31 +351,28 @@ export const useAppStore = create<AppState>()(
     })),
     {
       name: 'dressup-store',
-      version: 7,
-      // Strong migration: coerce types + merge legacy flags so panels open by default
+      version: 8,
+      // Coerce types + ensure strings are trimmed and non-undefined
       migrate: (persisted) => {
         try {
           const st = (persisted as any)?.state ?? {};
 
-          // Left panel open if any legacy flag says so; default true
+          // Panels (default open)
           const leftOpen =
             toBool(st.sidebarOpen, true) ||
             toBool(st.editorOpen, true) ||
             toBool(st.isEditorOpen, true) ||
             toBool(st.showPromptPanel, true);
-
           st.sidebarOpen = leftOpen;
           st.editorOpen = leftOpen;
           st.isEditorOpen = leftOpen;
           st.showPromptPanel = leftOpen;
 
-          // Right panel open if any legacy flag says so; default true
           const rightOpen =
             toBool(st.rightPanelOpen, true) ||
             toBool(st.historyOpen, true) ||
             toBool(st.isHistoryOpen, true) ||
             toBool(st.showHistory, true);
-
           st.rightPanelOpen = rightOpen;
           st.historyOpen = rightOpen;
           st.isHistoryOpen = rightOpen;
@@ -389,6 +388,10 @@ export const useAppStore = create<AppState>()(
           // Mask
           st.showMasks = toBool(st.showMasks, false);
           st.brushSize = clamp(toNum(st.brushSize, 12), 1, 200);
+
+          // Strings must never be undefined and should be trimmed
+          st.instruction = safeStr(st.instruction);
+          st.negativePrompt = safeStr(st.negativePrompt);
 
           // Params
           st.cfgScale = clamp(toNum(st.cfgScale, 7), 0, 30);
@@ -406,12 +409,12 @@ export const useAppStore = create<AppState>()(
 
           return { ...persisted, state: st };
         } catch {
-          return { version: 7, state: undefined } as any;
+          return { version: 8, state: undefined } as any;
         }
       },
       // Persist only what you need
       partialize: (st) => ({
-        // Panels (all names for compatibility)
+        // Panels
         sidebarOpen: st.sidebarOpen,
         rightPanelOpen: st.rightPanelOpen,
         editorOpen: st.editorOpen,
@@ -435,7 +438,7 @@ export const useAppStore = create<AppState>()(
         brushSize: st.brushSize,
         brushStrokes: st.brushStrokes,
 
-        // Params
+        // Params (strings included to keep them trimmed)
         instruction: st.instruction,
         negativePrompt: st.negativePrompt,
         cfgScale: st.cfgScale,
