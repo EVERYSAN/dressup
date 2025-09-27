@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Textarea } from './ui/Textarea';
 import { Button } from './ui/Button';
 import { useAppStore } from '../store/useAppStore';
-import { useImageEditing } from '../hooks/useImageGeneration'; // ← 編集ミューテーションのみ使用
+import { useImageEditing } from '../hooks/useImageGeneration';
 import { Upload, Edit3, HelpCircle, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
 import { PromptHints } from './PromptHints';
 import { cn } from '../utils/cn';
@@ -32,7 +32,7 @@ export const PromptComposer: React.FC = () => {
     addEdit,
   } = useAppStore();
 
-  // ★ 1枚目（Base）はローカルで管理して不変化を保証
+  // Base はローカルで管理（不変に保つ）
   const [baseImage, setBaseImage] = useState<string | null>(null);
 
   const { mutateAsync: edit, isPending: isEditPending } = useImageEditing();
@@ -46,7 +46,7 @@ export const PromptComposer: React.FC = () => {
     const prompt = currentPrompt.trim();
     if (!prompt || !baseImage) return;
 
-    // Edgeのpayload制限対策
+    // Vercel Edge 対策：payload を控えめに
     const approxTotalMB = [baseImage, editReferenceImages[0]]
       .filter(Boolean)
       .reduce((s, d) => s + base64SizeMB(d as string), 0);
@@ -70,7 +70,7 @@ export const PromptComposer: React.FC = () => {
         const dataUrl = `data:${mime};base64,${img.data}`;
         setCanvasImage(dataUrl);
 
-        // 履歴に積む
+        // 履歴に追加
         ensureProject();
         addEdit({
           id: `edit-${Date.now()}`,
@@ -88,7 +88,7 @@ export const PromptComposer: React.FC = () => {
     }
   };
 
-  // アップロード: 先にBase、その後はRef
+  // アップロード：先に Base、以降は Ref
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
@@ -146,13 +146,10 @@ export const PromptComposer: React.FC = () => {
   return (
     <>
       <div className="w-80 lg:w-72 xl:w-80 h-full bg-gray-950 border-r border-gray-200 p-6 flex flex-col space-y-6 overflow-y-auto">
-        {/* Header（Edit固定） */}
+        {/* Header（Edit固定・説明文は削除） */}
         <div className="flex items-center justify-between mb-3">
           <div>
             <h3 className="text-sm font-medium text-gray-300">Edit</h3>
-            <p className="text-xs text-gray-500 mt-1">
-              Upload the base image, then optional style references (up to 2).
-            </p>
           </div>
           <div className="flex items-center space-x-1">
             <Button variant="ghost" size="icon" onClick={() => setShowHintsModal(true)} className="h-6 w-6">
@@ -172,10 +169,7 @@ export const PromptComposer: React.FC = () => {
 
         {/* Uploads */}
         <div>
-          <label className="text-sm font-medium text-gray-300 mb-1 block">Style References</label>
-          <p className="text-xs text-gray-500 mb-3">
-            {baseImage ? 'Optional style references, up to 2 images' : 'Upload the base image (1st), then optional references'}
-          </p>
+          <label className="text-sm font-medium text-gray-300 mb-2 block">Style References</label>
 
           <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
           <Button variant="outline" onClick={() => fileInputRef.current?.click()} className="w-full">
@@ -183,11 +177,15 @@ export const PromptComposer: React.FC = () => {
             Upload
           </Button>
 
-          {/* Base（固定） */}
+          {/* Base（正方形・大） */}
           {baseImage && (
             <div className="mt-3 space-y-2">
               <div className="relative">
-                <img src={baseImage} alt="Base" className="w-full h-24 object-cover rounded-lg border border-gray-700" />
+                <img
+                  src={baseImage}
+                  alt="Base"
+                  className="aspect-square w-full max-h-[260px] object-cover rounded-lg border border-gray-700"
+                />
                 <button
                   onClick={() => {
                     setBaseImage(null);
@@ -206,12 +204,16 @@ export const PromptComposer: React.FC = () => {
             </div>
           )}
 
-          {/* Refs */}
+          {/* Refs（正方形・やや小） */}
           {editReferenceImages.length > 0 && (
             <div className="mt-3 space-y-2">
               {editReferenceImages.map((image, index) => (
                 <div key={index} className="relative">
-                  <img src={image} alt={`Reference ${index + 1}`} className="w-full h-20 object-cover rounded-lg border border-gray-700" />
+                  <img
+                    src={image}
+                    alt={`Reference ${index + 1}`}
+                    className="aspect-square w-full max-h-[220px] object-cover rounded-lg border border-gray-700"
+                  />
                   <button
                     onClick={() => removeEditReferenceImage(index)}
                     className="absolute top-1 right-1 bg-white/80 text-gray-700 hover:text-gray-900 rounded-full p-1 transition-colors"
@@ -238,7 +240,10 @@ export const PromptComposer: React.FC = () => {
             className="min-h-[120px] resize-none"
           />
 
-          <button onClick={() => setShowHintsModal(true)} className="mt-2 flex items-center text-xs hover:text-gray-400 transition-colors group">
+          <button
+            onClick={() => setShowHintsModal(true)}
+            className="mt-2 flex items-center text-xs hover:text-gray-400 transition-colors group"
+          >
             {currentPrompt.length < 20 ? (
               <HelpCircle className="h-3 w-3 mr-2 text-red-500 group-hover:text-red-400" />
             ) : (
@@ -327,7 +332,7 @@ export const PromptComposer: React.FC = () => {
           )}
         </div>
 
-        {/* Shortcuts（Generate系は削除） */}
+        {/* Shortcuts */}
         <div className="pt-4 border-t border-gray-200">
           <h4 className="text-xs font-medium text-gray-400 mb-2">Shortcuts</h4>
           <div className="space-y-1 text-xs text-gray-500">
