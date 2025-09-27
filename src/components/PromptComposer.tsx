@@ -32,12 +32,16 @@ export const PromptComposer: React.FC = () => {
     clearEditReferenceImages,
 
     // キャンバス表示
-    canvasImage,
     setCanvasImage,
 
     showPromptPanel,
     setShowPromptPanel,
     clearBrushStrokes,
+
+    // ★ 履歴用
+    ensureProject,
+    addGeneration,
+    addEdit,
   } = useAppStore();
 
   // ★ BASE（1枚目）を固定するローカル state
@@ -63,7 +67,7 @@ export const PromptComposer: React.FC = () => {
     const prompt = currentPrompt.trim();
     if (!prompt) return;
 
-    // 送信前のサイズ見積もり
+    // 送信前のサイズ見積もり（Vercel Edge の 4MB 近辺対策）
     const approxTotalMB = (() => {
       const parts: string[] = [];
       if (selectedTool === 'generate') {
@@ -86,11 +90,25 @@ export const PromptComposer: React.FC = () => {
           prompt,
           referenceImages: uploadedImages.length ? uploadedImages : undefined,
         });
+
         const parts = resp?.candidates?.[0]?.content?.parts;
         const img = parts?.find((p: any) => p?.inlineData?.data)?.inlineData;
         if (img?.data) {
           const mime = img?.mimeType || 'image/png';
-          setCanvasImage(`data:${mime};base64,${img.data}`);
+          const dataUrl = `data:${mime};base64,${img.data}`;
+          setCanvasImage(dataUrl);
+
+          // ★ 履歴に積む
+          ensureProject();
+          addGeneration({
+            id: `gen-${Date.now()}`,
+            prompt,
+            modelVersion: resp?.modelVersion || 'gemini-2.5-flash-image-preview',
+            parameters: { seed },
+            sourceAssets: (uploadedImages || []).map((u, i) => ({ id: `src-${i}`, url: u })),
+            outputAssets: [{ id: 'out-0', url: dataUrl }],
+            timestamp: Date.now(),
+          });
         }
       } else {
         // ★ 常に BASE を image1 として送る（＝連鎖編集を断つ）
@@ -101,11 +119,24 @@ export const PromptComposer: React.FC = () => {
           image1: baseImage,
           image2: editReferenceImages[0] || null,
         });
+
         const parts = resp?.candidates?.[0]?.content?.parts;
         const img = parts?.find((p: any) => p?.inlineData?.data)?.inlineData;
         if (img?.data) {
           const mime = img?.mimeType || 'image/png';
-          setCanvasImage(`data:${mime};base64,${img.data}`);
+          const dataUrl = `data:${mime};base64,${img.data}`;
+          setCanvasImage(dataUrl);
+
+          // ★ 履歴に積む
+          ensureProject();
+          addEdit({
+            id: `edit-${Date.now()}`,
+            instruction: prompt,
+            parentGenerationId: null,
+            maskReferenceAsset: null,
+            outputAssets: [{ id: 'out-0', url: dataUrl }],
+            timestamp: Date.now(),
+          });
         }
       }
     } catch (e) {
