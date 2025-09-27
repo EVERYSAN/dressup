@@ -2,295 +2,237 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 
-/* ============================================================
- * Types
- * ============================================================ */
+/* ========= Types ========= */
 export type Tool = 'pan' | 'mask';
-
 export type Pan = { x: number; y: number };
 
 export type BrushStroke = {
   id: string;
-  points: number[];      // 画像座標系 [x1,y1,x2,y2,...]
-  brushSize: number;     // px
+  points: number[];
+  brushSize: number;
 };
 
-export type GenAsset = {
-  id: string;
-  url: string;           // blob/data/http
-  width?: number;
-  height?: number;
-  meta?: Record<string, any>;
-};
+export type GenAsset = { id: string; url: string; width?: number; height?: number; meta?: Record<string, any> };
+export type HistoryItem = { id: string; createdAt: number; prompt: string; negativePrompt?: string; seed?: number | null; params?: Record<string, any>; assets: GenAsset[] };
+export type EditItem = { id: string; instruction: string; parentGenerationId: string | null; maskReferenceAsset: string | null; outputAssets: GenAsset[]; timestamp: number };
+export type Project = { id: string; name: string; edits: EditItem[] };
 
-export type HistoryItem = {
-  id: string;
-  createdAt: number;
-  prompt: string;
-  negativePrompt?: string;
-  seed?: number | null;
-  params?: Record<string, any>;
-  assets: GenAsset[];
-};
-
-export type EditItem = {
-  id: string;
-  instruction: string;
-  parentGenerationId: string | null;
-  maskReferenceAsset: string | null; // 画像に紐づくマスクIDなど
-  outputAssets: GenAsset[];
-  timestamp: number;
-};
-
-export type Project = {
-  id: string;
-  name: string;
-  edits: EditItem[];
-};
-
-export type AppTheme = 'light' | 'dark';
-
-/* ============================================================
- * Utils
- * ============================================================ */
+/* ========= Utils ========= */
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
-const toNum = (v: unknown, fallback: number) => {
-  const n = typeof v === 'number' ? v : Number(v);
-  return Number.isFinite(n) ? n : fallback;
-};
-const toInt = (v: unknown, fallback: number) => Math.trunc(toNum(v, fallback));
-const bool = (v: unknown, fallback = false) =>
-  typeof v === 'boolean' ? v : v === 'true' ? true : v === 'false' ? false : fallback;
+const toNum = (v: unknown, fb: number) => (typeof v === 'number' && Number.isFinite(v) ? v : Number.isFinite(Number(v)) ? Number(v) : fb);
+const toInt = (v: unknown, fb: number) => Math.trunc(toNum(v, fb));
+const toBool = (v: unknown, fb = false) => (typeof v === 'boolean' ? v : v === 'true' ? true : v === 'false' ? false : fb);
+const sanitizePan = (p: any): Pan => ({ x: Number.isFinite(p?.x) ? p.x : 0, y: Number.isFinite(p?.y) ? p.y : 0 });
 
-const sanitizePan = (p: any): Pan => ({
-  x: Number.isFinite(p?.x) ? p.x : 0,
-  y: Number.isFinite(p?.y) ? p.y : 0,
-});
-
-/* ============================================================
- * Store shape
- * ============================================================ */
+/* ========= Store shape ========= */
 export type AppState = {
-  /* ===== App / UI chrome ===== */
-  versionLabel: string;                 // 例: "1.0"
-  theme: AppTheme;
-  setTheme: (t: AppTheme) => void;
-
-  sidebarOpen: boolean;                 // 左ペイン（編集）
+  // ---- UI / Panels ----
+  sidebarOpen: boolean;                  // 新: 左パネル（編集）
   setSidebarOpen: (v: boolean) => void;
-
-  rightPanelOpen: boolean;              // 右ペイン（History）
+  rightPanelOpen: boolean;               // 新: 右パネル（履歴）
   setRightPanelOpen: (v: boolean) => void;
 
-  /* ===== Canvas / View ===== */
-  canvasImage: string | null;           // ベース画像（1枚目）
-  refImage: string | null;              // 参照画像（2枚目）
+  // 互換エイリアス（既存レイアウトがどれを読んでも動くように）
+  editorOpen: boolean;
+  setEditorOpen: (v: boolean) => void;
+  isEditorOpen: boolean;
+  setIsEditorOpen: (v: boolean) => void;
+
+  historyOpen: boolean;
+  setHistoryOpen: (v: boolean) => void;
+  isHistoryOpen: boolean;
+  setIsHistoryOpen: (v: boolean) => void;
+
+  // 幅も必要なら（固定 or resizable 実装用）
+  leftPanelWidth: number;                // px
+  rightPanelWidth: number;               // px
+  setLeftPanelWidth: (px: number) => void;
+  setRightPanelWidth: (px: number) => void;
+
+  // ---- Canvas / View ----
+  canvasImage: string | null;
+  refImage: string | null;
   setCanvasImage: (src: string | null) => void;
   setRefImage: (src: string | null) => void;
 
-  // ※ズームは 0.1〜3.0。必ず number で保持（persist 復元で文字列化対策あり）
-  canvasZoom: number;
+  canvasZoom: number;                    // 0.1 - 3.0
   setCanvasZoom: (z: number) => void;
 
-  // pan は「スケール前の論理座標」で保持（Stage には pan * zoom を渡す）
-  canvasPan: Pan;
+  canvasPan: Pan;                        // スケール前の論理座標
   setCanvasPan: (p: Pan) => void;
 
-  /* ===== Mask drawing ===== */
+  // ---- Mask ----
   selectedTool: Tool;
   setSelectedTool: (t: Tool) => void;
-
   showMasks: boolean;
   setShowMasks: (v: boolean) => void;
-
   brushSize: number;
   setBrushSize: (px: number) => void;
-
   brushStrokes: BrushStroke[];
   addBrushStroke: (s: BrushStroke) => void;
   clearBrushStrokes: () => void;
 
-  /* ===== Prompt & parameters（エディタ） ===== */
-  instruction: string;                  // 「変更内容の指示」テキスト
+  // ---- Prompts / Params ----
+  instruction: string;
   setInstruction: (v: string) => void;
-
   negativePrompt: string;
   setNegativePrompt: (v: string) => void;
 
-  // 画像生成パラメータ（必要に応じて UI と同期）
-  cfgScale: number;     // guidance scale
+  cfgScale: number;
   setCfgScale: (v: number) => void;
-
   steps: number;
   setSteps: (v: number) => void;
-
-  strength: number;     // img2img strength
+  strength: number;
   setStrength: (v: number) => void;
-
   width: number;
   height: number;
   setSize: (w: number, h: number) => void;
-
   seed: number | null;
   setSeed: (v: number | null) => void;
-
-  temperature: number; // 0〜1（文生成系で使う場合に備え）
+  temperature: number;
   setTemperature: (v: number) => void;
 
-  /* ===== Generation flow ===== */
+  // ---- Generation flow ----
   isGenerating: boolean;
   setIsGenerating: (v: boolean) => void;
-
-  progress: number;     // 0〜1
+  progress: number;
   setProgress: (p: number) => void;
-
   lastError: string | null;
   setLastError: (m: string | null) => void;
 
-  /* ===== History / Project ===== */
+  // ---- History / Project ----
   history: HistoryItem[];
   addHistory: (item: HistoryItem) => void;
   clearHistory: () => void;
-
   selectedHistoryId: string | null;
   selectHistory: (id: string | null) => void;
 
   currentProject: Project | null;
   setCurrentProject: (p: Project | null) => void;
-
   upsertEdit: (edit: EditItem) => void;
-
   selectedEditId: string | null;
   selectEdit: (id: string | null) => void;
-
   selectedGenerationId: string | null;
   selectGeneration: (id: string | null) => void;
 
-  /* ===== Helpers ===== */
-  resetView: () => void;                // ズーム・パンのみ初期化
-  hardResetSession: () => void;         // セッション系を初期化（画像や指示は残す）
+  // ---- Helpers ----
+  resetView: () => void;
+  hardResetSession: () => void;
 };
 
-/* ============================================================
- * Store
- * ============================================================ */
+/* ========= Store ========= */
 export const useAppStore = create<AppState>()(
   persist(
     devtools((set, get) => ({
-      /* ===== App / UI chrome ===== */
-      versionLabel: '1.0',
-      theme: 'light',
-      setTheme: (t) => set({ theme: t }),
-
+      // ---- UI / Panels (デフォルトで両方 true にして“消えない”状態に) ----
       sidebarOpen: true,
-      setSidebarOpen: (v) => set({ sidebarOpen: !!v }),
+      setSidebarOpen: (v) =>
+        set({
+          sidebarOpen: !!v,
+          editorOpen: !!v,        // 互換フラグも同期
+          isEditorOpen: !!v,
+        }),
 
       rightPanelOpen: true,
-      setRightPanelOpen: (v) => set({ rightPanelOpen: !!v }),
+      setRightPanelOpen: (v) =>
+        set({
+          rightPanelOpen: !!v,
+          historyOpen: !!v,       // 互換フラグも同期
+          isHistoryOpen: !!v,
+        }),
 
-      /* ===== Canvas / View ===== */
+      // 互換名（既存 JSX がこの名前を見ていても動く）
+      editorOpen: true,
+      setEditorOpen: (v) => set({ editorOpen: !!v, sidebarOpen: !!v, isEditorOpen: !!v }),
+      isEditorOpen: true,
+      setIsEditorOpen: (v) => set({ isEditorOpen: !!v, sidebarOpen: !!v, editorOpen: !!v }),
+
+      historyOpen: true,
+      setHistoryOpen: (v) => set({ historyOpen: !!v, rightPanelOpen: !!v, isHistoryOpen: !!v }),
+      isHistoryOpen: true,
+      setIsHistoryOpen: (v) => set({ isHistoryOpen: !!v, rightPanelOpen: !!v, historyOpen: !!v }),
+
+      leftPanelWidth: 288,
+      rightPanelWidth: 320,
+      setLeftPanelWidth: (px) => set({ leftPanelWidth: clamp(toInt(px, 288), 160, 480) }),
+      setRightPanelWidth: (px) => set({ rightPanelWidth: clamp(toInt(px, 320), 160, 560) }),
+
+      // ---- Canvas / View ----
       canvasImage: null,
       refImage: null,
       setCanvasImage: (src) => set({ canvasImage: src }),
       setRefImage: (src) => set({ refImage: src }),
 
-      canvasZoom: 1, // 100%
+      canvasZoom: 1,
       setCanvasZoom: (z) => set({ canvasZoom: clamp(toNum(z, 1), 0.1, 3) }),
 
       canvasPan: { x: 0, y: 0 },
       setCanvasPan: (p) => set({ canvasPan: sanitizePan(p) }),
 
-      /* ===== Mask drawing ===== */
+      // ---- Mask ----
       selectedTool: 'pan',
       setSelectedTool: (t) => set({ selectedTool: t }),
-
       showMasks: false,
       setShowMasks: (v) => set({ showMasks: !!v }),
-
       brushSize: 12,
       setBrushSize: (px) => set({ brushSize: clamp(toNum(px, 12), 1, 200) }),
-
       brushStrokes: [],
       addBrushStroke: (s) => set((st) => ({ brushStrokes: [...st.brushStrokes, s] })),
       clearBrushStrokes: () => set({ brushStrokes: [] }),
 
-      /* ===== Prompt & params ===== */
+      // ---- Prompts / Params ----
       instruction: '',
       setInstruction: (v) => set({ instruction: v ?? '' }),
-
       negativePrompt: '',
       setNegativePrompt: (v) => set({ negativePrompt: v ?? '' }),
-
       cfgScale: 7,
       setCfgScale: (v) => set({ cfgScale: clamp(toNum(v, 7), 0, 30) }),
-
       steps: 28,
       setSteps: (v) => set({ steps: clamp(toInt(v, 28), 1, 200) }),
-
       strength: 0.7,
       setStrength: (v) => set({ strength: clamp(toNum(v, 0.7), 0, 1) }),
-
       width: 1024,
       height: 1024,
-      setSize: (w, h) =>
-        set({
-          width: clamp(toInt(w, 1024), 64, 4096),
-          height: clamp(toInt(h, 1024), 64, 4096),
-        }),
-
+      setSize: (w, h) => set({ width: clamp(toInt(w, 1024), 64, 4096), height: clamp(toInt(h, 1024), 64, 4096) }),
       seed: null,
       setSeed: (v) => set({ seed: v === null ? null : toInt(v, 0) }),
-
       temperature: 0.7,
       setTemperature: (v) => set({ temperature: clamp(toNum(v, 0.7), 0, 1) }),
 
-      /* ===== Generation flow ===== */
+      // ---- Generation ----
       isGenerating: false,
       setIsGenerating: (v) => set({ isGenerating: !!v }),
-
       progress: 0,
       setProgress: (p) => set({ progress: clamp(toNum(p, 0), 0, 1) }),
-
       lastError: null,
       setLastError: (m) => set({ lastError: m }),
 
-      /* ===== History / Project ===== */
+      // ---- History / Project ----
       history: [],
-      addHistory: (item) =>
-        set((st) => ({
-          history: [...st.history, item].slice(-200), // 直近200件
-        })),
+      addHistory: (item) => set((st) => ({ history: [...st.history, item].slice(-200) })),
       clearHistory: () => set({ history: [] }),
-
       selectedHistoryId: null,
       selectHistory: (id) => set({ selectedHistoryId: id }),
 
       currentProject: null,
       setCurrentProject: (p) => set({ currentProject: p }),
-
-      upsertEdit: (edit) => {
+      upsertEdit: (edit) =>
         set((st) => {
           const proj = st.currentProject;
           if (!proj) return {};
           const exists = proj.edits.some((e) => e.id === edit.id);
-          const next = exists
-            ? proj.edits.map((e) => (e.id === edit.id ? edit : e))
-            : [...proj.edits, edit];
+          const next = exists ? proj.edits.map((e) => (e.id === edit.id ? edit : e)) : [...proj.edits, edit];
           return { currentProject: { ...proj, edits: next.slice(-100) } };
-        });
-      },
-
+        }),
       selectedEditId: null,
       selectEdit: (id) => set({ selectedEditId: id }),
-
       selectedGenerationId: null,
       selectGeneration: (id) => set({ selectedGenerationId: id }),
 
-      /* ===== Helpers ===== */
+      // ---- Helpers ----
       resetView: () => set({ canvasZoom: 1, canvasPan: { x: 0, y: 0 } }),
       hardResetSession: () =>
         set({
-          // 画像は残すが、セッション的な状態をクリア
           canvasZoom: 1,
           canvasPan: { x: 0, y: 0 },
           showMasks: false,
@@ -306,30 +248,41 @@ export const useAppStore = create<AppState>()(
     })),
     {
       name: 'dressup-store',
-      version: 5,
-      /**
-       * ★ 重要：persist 復元での型崩れを全面ケア
-       *    - number が "1" など文字列で戻っても強制的に数値化
-       *    - pan の欠損/NaN を補正
-       */
+      version: 6,
       migrate: (persisted) => {
         try {
           const st = (persisted as any)?.state ?? {};
           if (st) {
-            // UI
-            st.theme = (st.theme === 'dark' ? 'dark' : 'light') as AppTheme;
-            st.sidebarOpen = bool(st.sidebarOpen, true);
-            st.rightPanelOpen = bool(st.rightPanelOpen, true);
+            // Panels: 旧名/新名すべて true に寄せる
+            const leftOpen =
+              toBool(st.sidebarOpen, true) ||
+              toBool(st.editorOpen, true) ||
+              toBool(st.isEditorOpen, true);
+            const rightOpen =
+              toBool(st.rightPanelOpen, true) ||
+              toBool(st.historyOpen, true) ||
+              toBool(st.isHistoryOpen, true);
+
+            st.sidebarOpen = leftOpen;
+            st.editorOpen = leftOpen;
+            st.isEditorOpen = leftOpen;
+
+            st.rightPanelOpen = rightOpen;
+            st.historyOpen = rightOpen;
+            st.isHistoryOpen = rightOpen;
+
+            st.leftPanelWidth = clamp(toInt(st.leftPanelWidth ?? 288, 288), 160, 480);
+            st.rightPanelWidth = clamp(toInt(st.rightPanelWidth ?? 320, 320), 160, 560);
 
             // View
             st.canvasZoom = clamp(toNum(st.canvasZoom, 1), 0.1, 3);
             st.canvasPan = sanitizePan(st.canvasPan ?? { x: 0, y: 0 });
 
             // Mask
-            st.showMasks = bool(st.showMasks, false);
+            st.showMasks = toBool(st.showMasks, false);
             st.brushSize = clamp(toNum(st.brushSize, 12), 1, 200);
 
-            // Prompts/params
+            // Params
             st.cfgScale = clamp(toNum(st.cfgScale, 7), 0, 30);
             st.steps = clamp(toInt(st.steps, 28), 1, 200);
             st.strength = clamp(toNum(st.strength, 0.7), 0, 1);
@@ -341,21 +294,23 @@ export const useAppStore = create<AppState>()(
               st.seed = Number.isFinite(n) ? n : null;
             }
 
-            // History safety
             if (!Array.isArray(st.history)) st.history = [];
           }
           return { ...persisted, state: st };
         } catch {
-          return { version: 5, state: undefined } as any;
+          return { version: 6, state: undefined } as any;
         }
       },
-      // 保存対象を必要最小限に
       partialize: (st) => ({
-        // UI
-        versionLabel: st.versionLabel,
-        theme: st.theme,
+        // Panels
         sidebarOpen: st.sidebarOpen,
         rightPanelOpen: st.rightPanelOpen,
+        editorOpen: st.editorOpen,
+        isEditorOpen: st.isEditorOpen,
+        historyOpen: st.historyOpen,
+        isHistoryOpen: st.isHistoryOpen,
+        leftPanelWidth: st.leftPanelWidth,
+        rightPanelWidth: st.rightPanelWidth,
 
         // View
         canvasImage: st.canvasImage,
@@ -364,12 +319,12 @@ export const useAppStore = create<AppState>()(
         canvasPan: st.canvasPan,
 
         // Mask
+        selectedTool: st.selectedTool,
         showMasks: st.showMasks,
         brushSize: st.brushSize,
         brushStrokes: st.brushStrokes,
-        selectedTool: st.selectedTool,
 
-        // Prompts/params
+        // Params
         instruction: st.instruction,
         negativePrompt: st.negativePrompt,
         cfgScale: st.cfgScale,
@@ -380,7 +335,7 @@ export const useAppStore = create<AppState>()(
         seed: st.seed,
         temperature: st.temperature,
 
-        // Project / history
+        // History / Project
         history: st.history,
         currentProject: st.currentProject,
       }),
