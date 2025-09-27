@@ -2,13 +2,15 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 
-/* =========
+/* ============================================================
  * Types
- * ========= */
+ * ============================================================ */
+export type Tool = 'pan' | 'mask';              // 追加したい場合は 'erase' など拡張可
+
 export type BrushStroke = {
   id: string;
-  points: number[];      // [x1,y1,x2,y2,...]（画像座標系）
-  brushSize: number;     // px
+  points: number[];                              // 画像座標系 [x1,y1,x2,y2,...]
+  brushSize: number;                             // px
 };
 
 export type EditAsset = { id: string; url: string };
@@ -28,38 +30,44 @@ export type Project = {
   edits: EditItem[];
 };
 
-type Tool = 'pan' | 'mask';
+type Pan = { x: number; y: number };
 
-/* =========
+/* ============================================================
  * Utils
- * ========= */
+ * ============================================================ */
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
-const toNum = (v: unknown, fallback: number) => {
+const num = (v: unknown, fallback: number) => {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : fallback;
 };
 
-/* =========
- * Store
- * ========= */
+const sanitizePan = (p: any): Pan => ({
+  x: Number.isFinite(p?.x) ? p.x : 0,
+  y: Number.isFinite(p?.y) ? p.y : 0,
+});
+
+/* ============================================================
+ * Store shape
+ * ============================================================ */
 export type AppState = {
-  /* Canvas image & view */
+  // ===== Canvas / View =====
   canvasImage: string | null;
   setCanvasImage: (src: string | null) => void;
 
-  canvasZoom: number; // 0.1 - 3.0
+  // zoom は 0.1〜3.0。※「数値で保持」必須（persist 復元で文字列化されがち）
+  canvasZoom: number;
   setCanvasZoom: (z: number) => void;
 
-  // pan は「スケール前の論理座標」で保持（Stage へは pan * zoom を渡す）
-  canvasPan: { x: number; y: number };
-  setCanvasPan: (p: { x: number; y: number }) => void;
+  // pan は「スケール前の論理座標」で保持（Stage には pan * zoom を渡す）
+  canvasPan: Pan;
+  setCanvasPan: (p: Pan) => void;
 
-  /* Mask drawing */
+  // ===== Mask drawing =====
   showMasks: boolean;
   setShowMasks: (v: boolean) => void;
 
   brushSize: number;
-  setBrushSize: (v: number) => void;
+  setBrushSize: (px: number) => void;
 
   brushStrokes: BrushStroke[];
   addBrushStroke: (s: BrushStroke) => void;
@@ -68,85 +76,94 @@ export type AppState = {
   selectedTool: Tool;
   setSelectedTool: (t: Tool) => void;
 
-  /* Generation / edit flow flags */
+  // ===== Generation / Edit flow =====
   isGenerating: boolean;
   setIsGenerating: (v: boolean) => void;
 
-  /* Prompt / params */
+  lastError: string | null;
+  setLastError: (m: string | null) => void;
+
+  // ===== Prompt & params（必要に応じて増やせます）=====
   currentPrompt: string;
   setCurrentPrompt: (v: string) => void;
 
-  temperature: number;          // 0–1
+  negativePrompt: string;
+  setNegativePrompt: (v: string) => void;
+
+  temperature: number; // 0〜1
   setTemperature: (v: number) => void;
 
   seed: number | null;
   setSeed: (v: number | null) => void;
 
-  /* Project / edits */
+  // ===== Project / Edits =====
   currentProject: Project | null;
   setCurrentProject: (p: Project | null) => void;
 
   upsertEdit: (edit: EditItem) => void;
 
-  /* Selection */
   selectedEditId: string | null;
   selectEdit: (id: string | null) => void;
 
   selectedGenerationId: string | null;
   selectGeneration: (id: string | null) => void;
+
+  // ===== Helper =====
+  resetView: () => void; // ズーム・パンだけ初期化
+  hardReset: () => void; // ほぼ全消し
 };
 
+/* ============================================================
+ * Store
+ * ============================================================ */
 export const useAppStore = create<AppState>()(
   persist(
     devtools((set, get) => ({
-      /* Canvas image & view */
+      /* ===== Canvas / View ===== */
       canvasImage: null,
       setCanvasImage: (src) => set({ canvasImage: src }),
 
-      canvasZoom: 1,
-      setCanvasZoom: (z) => set({ canvasZoom: clamp(toNum(z, 1), 0.1, 3) }),
+      canvasZoom: 1, // 100%
+      setCanvasZoom: (z) => set({ canvasZoom: clamp(num(z, 1), 0.1, 3) }),
 
       canvasPan: { x: 0, y: 0 },
-      setCanvasPan: (p) =>
-        set({
-          canvasPan: {
-            x: Number.isFinite((p as any)?.x) ? (p as any).x : 0,
-            y: Number.isFinite((p as any)?.y) ? (p as any).y : 0,
-          },
-        }),
+      setCanvasPan: (p) => set({ canvasPan: sanitizePan(p) }),
 
-      /* Mask drawing */
+      /* ===== Mask drawing ===== */
       showMasks: false,
       setShowMasks: (v) => set({ showMasks: !!v }),
 
       brushSize: 12,
-      setBrushSize: (v) => set({ brushSize: clamp(toNum(v, 12), 1, 200) }),
+      setBrushSize: (px) => set({ brushSize: clamp(num(px, 12), 1, 200) }),
 
       brushStrokes: [],
-      addBrushStroke: (s) =>
-        set((st) => ({
-          brushStrokes: [...st.brushStrokes, s],
-        })),
+      addBrushStroke: (s) => set((st) => ({ brushStrokes: [...st.brushStrokes, s] })),
       clearBrushStrokes: () => set({ brushStrokes: [] }),
 
       selectedTool: 'pan',
       setSelectedTool: (t) => set({ selectedTool: t }),
 
-      /* Generation / edit */
+      /* ===== Generation / Edit flow ===== */
       isGenerating: false,
       setIsGenerating: (v) => set({ isGenerating: !!v }),
 
-      /* Prompt / params */
+      lastError: null,
+      setLastError: (m) => set({ lastError: m }),
+
+      /* ===== Prompt & params ===== */
       currentPrompt: '',
       setCurrentPrompt: (v) => set({ currentPrompt: v ?? '' }),
 
+      negativePrompt: '',
+      setNegativePrompt: (v) => set({ negativePrompt: v ?? '' }),
+
       temperature: 0.7,
-      setTemperature: (v) => set({ temperature: clamp(toNum(v, 0.7), 0, 1) }),
+      setTemperature: (v) => set({ temperature: clamp(num(v, 0.7), 0, 1) }),
 
       seed: null,
-      setSeed: (v) => set({ seed: v === null ? null : Math.trunc(toNum(v, 0)) }),
+      setSeed: (v) => set({ seed: v === null ? null : Math.trunc(num(v, 0)) }),
 
-      /* Project / edits */
+      /* ===== Project / Edits ===== */
       currentProject: null,
       setCurrentProject: (p) => set({ currentProject: p }),
 
@@ -155,65 +172,80 @@ export const useAppStore = create<AppState>()(
           const proj = st.currentProject;
           if (!proj) return {};
           const exists = proj.edits.some((e) => e.id === edit.id);
-          const nextEdits = exists
+          const next = exists
             ? proj.edits.map((e) => (e.id === edit.id ? edit : e))
             : [...proj.edits, edit];
-
-          // 直近100件までに丸める
-          const limited = nextEdits.slice(-100);
-          return { currentProject: { ...proj, edits: limited } };
+        // 直近100件で丸める（必要なら変更してください）
+          return { currentProject: { ...proj, edits: next.slice(-100) } };
         });
-
-        const len = get().currentProject?.edits.length ?? 0;
-        console.log(`[DRESSUP][store] edits length = ${len}`);
       },
 
-      /* Selection */
       selectedEditId: null,
       selectEdit: (id) => set({ selectedEditId: id }),
 
       selectedGenerationId: null,
       selectGeneration: (id) => set({ selectedGenerationId: id }),
+
+      /* ===== Helper ===== */
+      resetView: () => set({ canvasZoom: 1, canvasPan: { x: 0, y: 0 } }),
+      hardReset: () =>
+        set({
+          canvasImage: null,
+          canvasZoom: 1,
+          canvasPan: { x: 0, y: 0 },
+          showMasks: false,
+          brushSize: 12,
+          brushStrokes: [],
+          selectedTool: 'pan',
+          isGenerating: false,
+          lastError: null,
+          currentPrompt: '',
+          negativePrompt: '',
+          // temperature/seed はそのままでもよい
+        }),
     })),
     {
       name: 'dressup-store',
-      version: 2,
-      // 重要：persist 復元で文字列化された数値を“必ず”数値に戻す
-      migrate: (persisted, fromVersion) => {
+      version: 3,
+      /**
+       * ★ ここが重要：persist 復元で「数値が文字列になっている」事故を全部ケア
+       *   - zoom/pan/brushSize/temperature/seed を強制的に数値化
+       */
+      migrate: (persisted, _from) => {
         try {
           const st = (persisted as any)?.state ?? {};
           if (st) {
-            st.canvasZoom = clamp(toNum(st.canvasZoom, 1), 0.1, 3);
-            if (!st.canvasPan || typeof st.canvasPan !== 'object') {
-              st.canvasPan = { x: 0, y: 0 };
-            } else {
-              st.canvasPan.x = toNum(st.canvasPan.x, 0);
-              st.canvasPan.y = toNum(st.canvasPan.y, 0);
-            }
-            st.brushSize = clamp(toNum(st.brushSize, 12), 1, 200);
-            st.temperature = clamp(toNum(st.temperature, 0.7), 0, 1);
+            st.canvasZoom = clamp(num(st.canvasZoom, 1), 0.1, 3);
+            st.canvasPan = sanitizePan(st.canvasPan ?? { x: 0, y: 0 });
+            st.brushSize = clamp(num(st.brushSize, 12), 1, 200);
+            st.temperature = clamp(num(st.temperature, 0.7), 0, 1);
             if (st.seed !== null && st.seed !== undefined) {
-              const n = Math.trunc(toNum(st.seed, 0));
+              const n = Math.trunc(num(st.seed, 0));
               st.seed = Number.isFinite(n) ? n : null;
             }
           }
           return { ...persisted, state: st };
         } catch {
-          // 壊れていたら初期化
-          return { version: 2, state: undefined } as any;
+          // 破損時は初期化
+          return { version: 3, state: undefined } as any;
         }
       },
-      // 保存対象を最小限に
+      /**
+       * 保存対象を必要最小限に（不要なら増減してください）
+       */
       partialize: (st) => ({
         canvasImage: st.canvasImage,
         canvasZoom: st.canvasZoom,
         canvasPan: st.canvasPan,
         showMasks: st.showMasks,
         brushSize: st.brushSize,
-        selectedTool: st.selectedTool,
-        // 生成フラグやプロンプトはセッション単位で十分なら保存しない
-        currentProject: st.currentProject,
         brushStrokes: st.brushStrokes,
+        selectedTool: st.selectedTool,
+        currentProject: st.currentProject,
+        currentPrompt: st.currentPrompt,
+        negativePrompt: st.negativePrompt,
+        temperature: st.temperature,
+        seed: st.seed,
       }),
     }
   )
