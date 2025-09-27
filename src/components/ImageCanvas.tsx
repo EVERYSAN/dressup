@@ -117,7 +117,19 @@ export const ImageCanvas: React.FC = () => {
     if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') return null;
     return pos;
   };
-
+  
+  const handleMouseDown = () => {
+      if (selectedTool !== 'mask' || !image) return;
+      const pos = getRelativePointerSafe();
+      if (!pos) return;
+  
+      const rx = pos.x - imageOffset.x;
+      const ry = pos.y - imageOffset.y;
+      if (rx >= 0 && rx <= image.width && ry >= 0 && ry <= image.height) {
+        setIsDrawing(true);
+        setCurrentStroke([rx, ry]);
+      }
+    };
 
   const handleMouseMove = () => {
     if (!isDrawing || selectedTool !== 'mask' || !image) return;
