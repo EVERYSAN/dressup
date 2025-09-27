@@ -1,10 +1,17 @@
-// src/components/PromptComposer.tsx
 import React, { useState, useRef } from 'react';
 import { Textarea } from './ui/Textarea';
 import { Button } from './ui/Button';
 import { useAppStore } from '../store/useAppStore';
 import { useImageEditing } from '../hooks/useImageGeneration';
-import { Upload, Edit3, HelpCircle, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
+import {
+  Upload,
+  Edit3,
+  HelpCircle,
+  ChevronDown,
+  ChevronRight,
+  RotateCcw,
+  Scissors,
+} from 'lucide-react';
 import { PromptHints } from './PromptHints';
 import { cn } from '../utils/cn';
 import { resizeFileToDataURL, base64SizeMB } from '../utils/resizeImage';
@@ -147,25 +154,37 @@ export const PromptComposer: React.FC = () => {
   return (
     <>
       <div className="w-80 lg:w-72 xl:w-80 h-full bg-emerald-50 border-r border-emerald-100 p-6 flex flex-col space-y-6 overflow-y-auto shadow-sm">
-        {/* Header（Edit固定） */}
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h3 className="text-sm font-medium text-gray-800">編集</h3>
+        {/* ==== Header（強化） ==== */}
+        <div className="mb-2">
+          <div className="flex items-center justify-between">
+            <div className="inline-flex items-center gap-2 rounded-md bg-emerald-600/10 text-emerald-800 px-2.5 py-1.5">
+              <Scissors className="h-5 w-5" />
+              <span className="text-base font-bold tracking-wide">編集</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowHintsModal(true)}
+                className="h-7 w-7"
+                title="ヒント"
+              >
+                <HelpCircle className="h-4 w-4 text-emerald-700" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowPromptPanel(false)}
+                className="h-7 w-7"
+                title="左パネルを隠す"
+              >
+                ×
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center space-x-1">
-            <Button variant="ghost" size="icon" onClick={() => setShowHintsModal(true)} className="h-6 w-6" title="ヒント">
-              <HelpCircle className="h-4 w-4 text-emerald-600" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowPromptPanel(false)}
-              className="h-6 w-6"
-              title="左パネルを隠す"
-            >
-              ×
-            </Button>
-          </div>
+          <p className="mt-2 text-xs text-emerald-800/80">
+            このエリアで「ベース画像・参照画像のアップロード」と「変更内容の指示」を設定します。
+          </p>
         </div>
 
         {/* Uploads */}
