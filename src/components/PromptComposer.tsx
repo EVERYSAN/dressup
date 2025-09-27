@@ -1,4 +1,3 @@
-// src/components/PromptComposer.tsx
 import React, { useState, useRef } from 'react';
 import { Textarea } from './ui/Textarea';
 import { Button } from './ui/Button';
@@ -20,19 +19,19 @@ export const PromptComposer: React.FC = () => {
     seed,
     setSeed,
 
-    // 生成モード用のアップロード（参照用）
+    // Generate 用
     uploadedImages,
     addUploadedImage,
     removeUploadedImage,
     clearUploadedImages,
 
-    // 編集モード用の参照画像（最大2）
+    // Edit 用
     editReferenceImages,
     addEditReferenceImage,
     removeEditReferenceImage,
     clearEditReferenceImages,
 
-    // 中央キャンバスに表示する画像（生成物や編集中の対象）
+    // キャンバス表示
     canvasImage,
     setCanvasImage,
 
@@ -41,11 +40,11 @@ export const PromptComposer: React.FC = () => {
     clearBrushStrokes,
   } = useAppStore();
 
-  // ★ BASE（1枚目）を固定表示するためのローカル state
+  // ★ BASE（1枚目）を固定するローカル state
   const [baseImage, setBaseImage] = useState<string | null>(null);
 
-  const { generate, isPending: isGenPending } = useImageGeneration();
-  const { edit, isPending: isEditPending } = useImageEditing();
+  const { mutateAsync: generate, isPending: isGenPending } = useImageGeneration();
+  const { mutateAsync: edit, isPending: isEditPending } = useImageEditing();
 
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -59,18 +58,18 @@ export const PromptComposer: React.FC = () => {
     }
   };
 
-  // 生成/編集の実行：生成物は「中央（canvasImage）」のみ更新、左リストには追加しない
+  // 生成/編集の実行：結果は中央のみ更新、BASEは不変
   const handleGenerateOrEdit = async () => {
     const prompt = currentPrompt.trim();
     if (!prompt) return;
 
-    // 送信前に大きさチェック（3.5MB目安）
+    // 送信前のサイズ見積もり
     const approxTotalMB = (() => {
       const parts: string[] = [];
       if (selectedTool === 'generate') {
         parts.push(...uploadedImages);
       } else {
-        if (canvasImage) parts.push(canvasImage);
+        if (baseImage) parts.push(baseImage);
         if (editReferenceImages[0]) parts.push(editReferenceImages[0]);
       }
       return parts.reduce((sum, p) => sum + base64SizeMB(p), 0);
@@ -83,19 +82,25 @@ export const PromptComposer: React.FC = () => {
     try {
       if (selectedTool === 'generate') {
         assertFn('generate', generate);
-        const referenceImages = uploadedImages.length > 0 ? uploadedImages : undefined;
-        // 生成：結果は中央にのみ反映（左リストには追加しない）
-        const resp: any = await generate({ prompt, referenceImages });
+        const resp: any = await generate({
+          prompt,
+          referenceImages: uploadedImages.length ? uploadedImages : undefined,
+        });
         const parts = resp?.candidates?.[0]?.content?.parts;
         const img = parts?.find((p: any) => p?.inlineData?.data)?.inlineData;
         if (img?.data) {
           const mime = img?.mimeType || 'image/png';
           setCanvasImage(`data:${mime};base64,${img.data}`);
         }
-      } else if (selectedTool === 'edit') {
+      } else {
+        // ★ 常に BASE を image1 として送る（＝連鎖編集を断つ）
+        if (!baseImage) return;
         assertFn('edit', edit);
-        // 編集：結果は中央にのみ反映（BASEは不変）
-        const resp: any = await edit(prompt);
+        const resp: any = await edit({
+          prompt,
+          image1: baseImage,
+          image2: editReferenceImages[0] || null,
+        });
         const parts = resp?.candidates?.[0]?.content?.parts;
         const img = parts?.find((p: any) => p?.inlineData?.data)?.inlineData;
         if (img?.data) {
@@ -108,9 +113,7 @@ export const PromptComposer: React.FC = () => {
     }
   };
 
-  // 画像アップロード：
-  // - Generate：そのまま参照画像（最大2）
-  // - Edit：最初の1枚を BASE（固定）& 中央（canvas）へ、2枚目以降は参照へ
+  // アップロード
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
@@ -123,13 +126,12 @@ export const PromptComposer: React.FC = () => {
           if (!uploadedImages.includes(dataUrl) && uploadedImages.length < 2) {
             addUploadedImage(dataUrl);
           }
-        } else if (selectedTool === 'edit') {
+        } else {
+          // Edit: 1枚目は BASE、2枚目以降は参照
           if (!baseImage) {
-            // 1枚目は BASE に固定し、中央にも表示（編集対象）
             setBaseImage(dataUrl);
-            setCanvasImage(dataUrl);
+            setCanvasImage(dataUrl); // キャンバスにも表示
           } else {
-            // 2枚目以降は参照（最大2）
             if (!editReferenceImages.includes(dataUrl) && editReferenceImages.length < 2) {
               addEditReferenceImage(dataUrl);
             }
@@ -146,14 +148,14 @@ export const PromptComposer: React.FC = () => {
     clearUploadedImages();
     clearEditReferenceImages();
     clearBrushStrokes();
-    setBaseImage(null);       // BASE もクリア
-    setCanvasImage(null);     // 中央もクリア
+    setBaseImage(null);
+    setCanvasImage(null);
     setSeed(null);
     setTemperature(0.7);
     setShowClearConfirm(false);
   };
 
-  // ★ マスク機能は削除：ツールは Generate / Edit のみ
+  // ツール定義（マスク機能は無し）
   const tools = [
     { id: 'generate', icon: Wand2, label: 'Generate', description: 'Create from text' },
     { id: 'edit', icon: Edit3, label: 'Edit', description: 'Modify existing' },
@@ -275,7 +277,7 @@ export const PromptComposer: React.FC = () => {
             </div>
           )}
 
-          {/* 参照画像（Edit: Baseの下／Generate: そのまま） */}
+          {/* 参照画像 */}
           {((selectedTool === 'generate' && uploadedImages.length > 0) ||
             (selectedTool === 'edit' && editReferenceImages.length > 0)) && (
             <div className="mt-3 space-y-2">
@@ -324,7 +326,7 @@ export const PromptComposer: React.FC = () => {
           </button>
         </div>
 
-        {/* Execute Buttons */}
+        {/* Execute */}
         <Button
           onClick={handleGenerateOrEdit}
           disabled={selectedTool === 'generate' ? !canGenerate : !canEdit}
