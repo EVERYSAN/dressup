@@ -1,3 +1,4 @@
+// src/components/PromptComposer.tsx
 import React, { useState, useRef } from 'react';
 import { Textarea } from './ui/Textarea';
 import { Button } from './ui/Button';
@@ -146,14 +147,14 @@ export const PromptComposer: React.FC = () => {
   return (
     <>
       <div className="w-80 lg:w-72 xl:w-80 h-full bg-emerald-50 border-r border-emerald-100 p-6 flex flex-col space-y-6 overflow-y-auto shadow-sm">
-        {/* Header（Edit固定・説明文は削除） */}
+        {/* Header（Edit固定） */}
         <div className="flex items-center justify-between mb-3">
           <div>
             <h3 className="text-sm font-medium text-gray-800">Edit</h3>
           </div>
           <div className="flex items-center space-x-1">
             <Button variant="ghost" size="icon" onClick={() => setShowHintsModal(true)} className="h-6 w-6">
-              <HelpCircle className="h-4 w-4" />
+              <HelpCircle className="h-4 w-4 text-emerald-600" />
             </Button>
             <Button
               variant="ghost"
@@ -171,20 +172,23 @@ export const PromptComposer: React.FC = () => {
         <div>
           <label className="text-sm font-medium text-gray-800 mb-2 block">Style References</label>
 
-          <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-          <Button variant="outline" onClick={() => fileInputRef.current?.click()} className="w-full">
-            <Upload className="h-4 w-4 mr-2" />
-            Upload
-          </Button>
+          {/* 2) Upload を白カード化 */}
+          <div className="rounded-lg bg-white border border-emerald-200 p-2 shadow-sm">
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+            <Button variant="outline" onClick={() => fileInputRef.current?.click()} className="w-full">
+              <Upload className="h-4 w-4 mr-2" />
+              Upload
+            </Button>
+          </div>
 
-          {/* Base（正方形・大） */}
+          {/* Base（正方形・白カード＆淡ボーダー） */}
           {baseImage && (
             <div className="mt-3 space-y-2">
               <div className="relative">
                 <img
                   src={baseImage}
                   alt="Base"
-                  className="aspect-square w-full max-h-[260px] object-cover rounded-lg border border-emerald-200 shadow-sm"
+                  className="aspect-square w-full max-h-[260px] object-cover rounded-lg border border-emerald-200 shadow-sm bg-white"
                 />
                 <button
                   onClick={() => {
@@ -192,7 +196,7 @@ export const PromptComposer: React.FC = () => {
                     setCanvasImage(null);
                     clearEditReferenceImages();
                   }}
-                  className="absolute top-1 right-1 bg-white/80 text-gray-700 hover:text-gray-900 rounded-full p-1 transition-colors"
+                  className="absolute top-1 right-1 bg-gray-900/70 text-white hover:bg-gray-900 rounded-full p-1 transition-colors"
                   title="Clear base image"
                 >
                   ×
@@ -204,7 +208,7 @@ export const PromptComposer: React.FC = () => {
             </div>
           )}
 
-          {/* Refs（正方形・やや小） */}
+          {/* Refs（白カード＆淡ボーダー） */}
           {editReferenceImages.length > 0 && (
             <div className="mt-3 space-y-2">
               {editReferenceImages.map((image, index) => (
@@ -212,7 +216,7 @@ export const PromptComposer: React.FC = () => {
                   <img
                     src={image}
                     alt={`Reference ${index + 1}`}
-                    className="aspect-square w-full max-h-[220px] object-cover rounded-lg border border-emerald-200 shadow-sm"
+                    className="aspect-square w-full max-h-[220px] object-cover rounded-lg border border-emerald-200 shadow-sm bg-white"
                   />
                   <button
                     onClick={() => removeEditReferenceImage(index)}
@@ -234,29 +238,33 @@ export const PromptComposer: React.FC = () => {
         <div>
           <label className="text-sm font-medium text-gray-800 mb-3 block">Describe your changes</label>
           <Textarea
-          value={currentPrompt}
-          onChange={(e) => setCurrentPrompt(e.target.value)}
-          placeholder="Replace the 1st outfit with the 2nd reference; keep pose and lighting..."
-          className="min-h-[120px] resize-none bg-white border border-emerald-200 text-gray-900 placeholder:text-gray-400 focus:border-emerald-300 focus:ring-0"
-        />
+            value={currentPrompt}
+            onChange={(e) => setCurrentPrompt(e.target.value)}
+            placeholder="Replace the 1st outfit with the 2nd reference; keep pose and lighting..."
+            className="min-h-[120px] resize-none bg-white border border-emerald-200 text-gray-900 placeholder:text-gray-400 focus:border-emerald-300 focus:ring-0"
+          />
 
           <button
             onClick={() => setShowHintsModal(true)}
-            className="mt-2 flex items-center text-xs hover:text-gray-400 transition-colors group"
+            className="mt-2 flex items-center text-xs transition-colors group"
           >
             {currentPrompt.length < 20 ? (
               <HelpCircle className="h-3 w-3 mr-2 text-red-500 group-hover:text-red-400" />
             ) : (
               <div className={cn('h-2 w-2 rounded-full mr-2', currentPrompt.length < 50 ? 'bg-yellow-500' : 'bg-green-500')} />
             )}
-            <span className="text-gray-500 group-hover:text-gray-400">
+            <span className="text-gray-600 group-hover:text-gray-700">
               {currentPrompt.length < 20 ? 'Add detail for better results' : currentPrompt.length < 50 ? 'Good detail level' : 'Excellent prompt detail'}
             </span>
           </button>
         </div>
 
         {/* Execute */}
-        <Button onClick={handleApplyEdit} disabled={!canEdit} className="w-full h-14 text-base font-medium bg-emerald-600 hover:bg-emerald-700 text-white">
+        <Button
+          onClick={handleApplyEdit}
+          disabled={!canEdit}
+          className="w-full h-14 text-base font-medium bg-emerald-600 hover:bg-emerald-700 text-white disabled:bg-emerald-300 disabled:cursor-not-allowed"
+        >
           {isEditPending ? (
             <>
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/80 mr-2" />
@@ -274,7 +282,7 @@ export const PromptComposer: React.FC = () => {
         <div>
           <button
             onClick={() => setShowAdvanced(!showAdvanced)}
-            className="flex items-center text-sm text-gray-400 hover:text-gray-300 transition-colors duration-200"
+            className="flex items-center text-sm text-gray-700 hover:text-gray-900 transition-colors duration-200"
           >
             {showAdvanced ? <ChevronDown className="h-4 w-4 mr-1" /> : <ChevronRight className="h-4 w-4 mr-1" />}
             {showAdvanced ? 'Hide' : 'Show'} Advanced Controls
@@ -282,15 +290,15 @@ export const PromptComposer: React.FC = () => {
 
           <button
             onClick={() => setShowClearConfirm(!showClearConfirm)}
-            className="flex items-center text-sm text-gray-400 hover:text-red-400 transition-colors duration-200 mt-2"
+            className="flex items-center text-sm text-gray-700 hover:text-red-500 transition-colors duration-200 mt-2"
           >
             <RotateCcw className="h-4 w-4 mr-2" />
             Clear Session
           </button>
 
           {showClearConfirm && (
-            <div className="mt-3 p-3 bg-gray-800 rounded-lg border border-gray-700">
-              <p className="text-xs text-gray-600 mb-3">
+            <div className="mt-3 p-3 bg-white rounded-lg border border-emerald-200">
+              <p className="text-xs text-gray-700 mb-3">
                 Are you sure you want to clear this session? This will remove all uploads, prompts, and canvas content.
               </p>
               <div className="flex space-x-2">
@@ -307,7 +315,7 @@ export const PromptComposer: React.FC = () => {
           {showAdvanced && (
             <div className="mt-4 space-y-4">
               <div>
-                <label className="text-xs text-gray-400 mb-2 block">Creativity ({temperature})</label>
+                <label className="text-xs text-gray-700 mb-2 block">Creativity ({temperature})</label>
                 <input
                   type="range"
                   min="0"
@@ -315,17 +323,17 @@ export const PromptComposer: React.FC = () => {
                   step="0.1"
                   value={temperature}
                   onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                  className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer slider"
+                  className="w-full h-2 bg-emerald-100 rounded-lg appearance-none cursor-pointer slider"
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-400 mb-2 block">Seed (optional)</label>
+                <label className="text-xs text-gray-700 mb-2 block">Seed (optional)</label>
                 <input
                   type="number"
                   value={seed || ''}
                   onChange={(e) => setSeed(e.target.value ? parseInt(e.target.value) : null)}
                   placeholder="Random"
-                  className="w-full h-8 px-2 bg-white border border-gray-700 rounded text-xs text-gray-900"
+                  className="w-full h-8 px-2 bg-white border border-emerald-200 rounded text-xs text-gray-900 placeholder:text-gray-400 focus:border-emerald-300 focus:ring-0"
                 />
               </div>
             </div>
@@ -333,9 +341,9 @@ export const PromptComposer: React.FC = () => {
         </div>
 
         {/* Shortcuts */}
-        <div className="pt-4 border-t border-gray-200">
-          <h4 className="text-xs font-medium text-gray-400 mb-2">Shortcuts</h4>
-          <div className="space-y-1 text-xs text-gray-500">
+        <div className="pt-4 border-t border-emerald-100">
+          <h4 className="text-xs font-medium text-gray-700 mb-2">Shortcuts</h4>
+          <div className="space-y-1 text-xs text-gray-600">
             <div className="flex justify-between"><span>History</span><span>H</span></div>
             <div className="flex justify-between"><span>Toggle Panel</span><span>P</span></div>
           </div>
