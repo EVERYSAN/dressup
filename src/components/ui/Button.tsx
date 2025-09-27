@@ -1,3 +1,4 @@
+// src/components/ui/Button.tsx
 import React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../utils/cn';
@@ -32,9 +33,11 @@ export interface ButtonProps
     VariantProps<typeof buttonVariants> {}
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, ...props }, ref) => {
+  ({ className, variant, size, type, ...props }, ref) => {
     return (
       <button
+        // ← ここがポイント：未指定なら button にする
+        type={type ?? 'button'}
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
         {...props}
