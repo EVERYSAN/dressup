@@ -74,19 +74,32 @@ export const ImageCanvas: React.FC = () => {
     return { x, y };
   }, [image, stageSize, z]);
 
-  // === その場ズーム
+  // === その場ズーム（Stage の実値から計算）
   const zoomAt = (point: { x: number; y: number }, nextZoom: number) => {
-    const newZ = clamp(nextZoom, 0.1, 3);
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    const oldScale = stage.scaleX() || 1;
+    const oldX = stage.x() || 0;
+    const oldY = stage.y() || 0;
+
+    const newScale = clamp(nextZoom, 0.1, 3);
+
+    // いま見ている座標をスケール前の「論理座標」に変換
     const mousePointTo = {
-      x: (point.x - pan.x * z) / z,
-      y: (point.y - pan.y * z) / z,
+      x: (point.x - oldX) / oldScale,
+      y: (point.y - oldY) / oldScale,
     };
-    const newPan = {
-      x: point.x / newZ - mousePointTo.x,
-      y: point.y / newZ - mousePointTo.y,
+
+    // 新しいスケールでのステージ左上（= pan*z）を再計算
+    const newStagePos = {
+      x: point.x - mousePointTo.x * newScale,
+      y: point.y - mousePointTo.y * newScale,
     };
-    setCanvasZoom(newZ);
-    setCanvasPan(newPan);
+
+    // pan は「スケール前の単位」で保持する
+    setCanvasZoom(newScale);
+    setCanvasPan({ x: newStagePos.x / newScale, y: newStagePos.y / newScale });
   };
 
   // === 初期フィット（拡大しない・100%上限）
@@ -203,8 +216,8 @@ export const ImageCanvas: React.FC = () => {
     if (!stage) return;
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
-    const direction = e.evt.deltaY > 0 ? -0.1 : 0.1; // 下スクロールで縮小
-    zoomAt(pointer, z + direction);
+    const step = e.evt.deltaY > 0 ? -0.1 : 0.1; // 下スクロールで縮小
+    zoomAt(pointer, z + step);
   };
 
   // === ピンチズーム（スマホ）
@@ -364,8 +377,8 @@ export const ImageCanvas: React.FC = () => {
           height={stageSize.height}
           scaleX={z}
           scaleY={z}
-          x={pan.x * z}
-          y={pan.y * z}
+          x={panX}
+          y={panY}
           draggable={selectedTool !== 'mask'}
           onDragEnd={(e) => {
             setCanvasPan({ x: e.target.x() / z, y: e.target.y() / z });
