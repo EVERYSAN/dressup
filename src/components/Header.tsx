@@ -15,7 +15,7 @@ export const Header: React.FC = () => {
               DRESSUP | AI画像編集ツール
             </h1>
             <h1 className="text-xl font-semibold text-black md:hidden">
-              DRESSUP | AI画像編集ツール
+              DRESSUP
             </h1>
           </div>
           <div className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded">
