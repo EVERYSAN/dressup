@@ -1,3 +1,4 @@
+// src/components/HistoryPanel.tsx
 import React from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { Button } from './ui/Button';
@@ -55,9 +56,7 @@ export const HistoryPanel: React.FC = () => {
         </Button>
       </div>
 
-      {/* === 画像のみの履歴 ===
-          - パネル全体の高さを使ってスクロール
-          - 3列グリッド（幅に応じて2列へ崩してもOK） */}
+      {/* 画像のみの履歴（縦スクロール） */}
       <div className="flex-1 overflow-y-auto min-h-0 pr-1">
         {edits.length === 0 ? (
           <div className="text-center py-10">
@@ -65,13 +64,13 @@ export const HistoryPanel: React.FC = () => {
             <p className="text-sm text-gray-500">No images yet</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3">
             {edits.map((edit, index) => {
               const url = edit.outputAssets?.[0]?.url;
               const selected = selectedEditId === edit.id;
               return (
                 <div
-                  key={edit.id}
+                  key={edit.id ?? index}
                   className={cn(
                     'relative aspect-square rounded-lg border-2 cursor-pointer transition-all duration-200 overflow-hidden',
                     selected
@@ -94,8 +93,6 @@ export const HistoryPanel: React.FC = () => {
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-500" />
                     </div>
                   )}
-
-                  {/* ラベル（左上） */}
                   <div className="absolute top-2 left-2 bg-emerald-600/90 text-white text-xs px-2 py-0.5 rounded">
                     Edit #{index + 1}
                   </div>
@@ -128,14 +125,14 @@ export const HistoryPanel: React.FC = () => {
                 document.body.removeChild(a);
               } else {
                 const blob = await fetch(imageUrl).then((r) => r.blob());
-                const url = URL.createObjectURL(blob);
+                const o = URL.createObjectURL(blob);
                 const a = document.createElement('a');
-                a.href = url;
+                a.href = o;
                 a.download = `dressup-${Date.now()}.png`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
-                URL.revokeObjectURL(url);
+                URL.revokeObjectURL(o);
               }
             } catch (e) {
               console.error('single download error', e);
@@ -152,10 +149,8 @@ export const HistoryPanel: React.FC = () => {
           size="sm"
           className="w-full"
           onClick={async () => {
-            if (!currentProject) return;
             const urls: string[] =
               edits.map((e) => e.outputAssets?.[0]?.url).filter(Boolean) as string[];
-
             for (let i = 0; i < urls.length; i++) {
               const url = urls[i];
               try {
