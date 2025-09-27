@@ -4,32 +4,30 @@ import { useAppStore } from '../store/useAppStore';
 export const MaskOverlay: React.FC = () => {
   const { selectedMask, showMasks } = useAppStore();
 
-  if (!showMasks || !selectedMask) return null;
+  if (!showMasks || !selectedMask || !selectedMask.bounds) return null;
+
+  const { x = 0, y = 0, width = 0, height = 0 } = selectedMask.bounds || {};
+  // width/height が 0 以下なら描画しない（安全側）
+  if (!(width > 0 && height > 0)) return null;
 
   return (
     <div className="absolute inset-0 pointer-events-none">
-      {/* Marching ants effect */}
-      <div 
+      {/* marching ants */}
+      <div
         className="absolute border-2 border-yellow-400 animate-pulse"
         style={{
-          left: selectedMask.bounds.x,
-          top: selectedMask.bounds.y,
-          width: selectedMask.bounds.width,
-          height: selectedMask.bounds.height,
+          left: x,
+          top: y,
+          width,
+          height,
           borderStyle: 'dashed',
-          animationDuration: '1s'
+          animationDuration: '1s',
         }}
       />
-      
-      {/* Mask overlay */}
+      {/* overlay */}
       <div
         className="absolute bg-yellow-400/20"
-        style={{
-          left: selectedMask.bounds.x,
-          top: selectedMask.bounds.y,
-          width: selectedMask.bounds.width,
-          height: selectedMask.bounds.height,
-        }}
+        style={{ left: x, top: y, width, height }}
       />
     </div>
   );
