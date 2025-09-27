@@ -393,6 +393,44 @@ export const HistoryPanel: React.FC = () => {
           <Download className="h-4 w-4 mr-2" />
           Download
         </Button>
+                <Button
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={async () => {
+            const { currentProject } = useAppStore.getState();
+            if (!currentProject) return;
+            const urls: string[] = [
+              ...currentProject.generations.map(g => g.outputAssets[0]?.url).filter(Boolean),
+              ...currentProject.edits.map(e => e.outputAssets[0]?.url).filter(Boolean),
+            ] as string[];
+      
+            for (let i = 0; i < urls.length; i++) {
+              const url = urls[i];
+              try {
+                if (url.startsWith('data:')) {
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `dressup-${i + 1}.png`;
+                  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                } else {
+                  const blob = await fetch(url).then(r => r.blob());
+                  const o = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = o; a.download = `dressup-${i + 1}.png`;
+                  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                  URL.revokeObjectURL(o);
+                }
+              } catch (e) { console.error('batch download error', e); }
+            }
+          }}
+          disabled={
+            (useAppStore.getState().currentProject?.generations.length ?? 0) +
+            (useAppStore.getState().currentProject?.edits.length ?? 0) === 0
+          }
+        >
+          Download All
+        </Button>
       </div>
       
       {/* Image Preview Modal */}
