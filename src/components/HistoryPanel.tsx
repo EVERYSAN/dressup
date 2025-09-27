@@ -16,7 +16,7 @@ export const HistoryPanel: React.FC = () => {
     showHistory,
     setShowHistory,
     setCanvasImage,
-    selectedTool,
+    selectedTool, // 'edit' 固定
   } = useAppStore();
 
   const [previewModal, setPreviewModal] = React.useState<{
@@ -34,7 +34,7 @@ export const HistoryPanel: React.FC = () => {
   const generations = currentProject?.generations ?? [];
   const edits = currentProject?.edits ?? [];
 
-  // 画像サイズの表示（中央画像が変わったら更新）
+  // 画像サイズの表示
   const [imageDimensions, setImageDimensions] = React.useState<{ width: number; height: number } | null>(null);
   React.useEffect(() => {
     if (!canvasImage) return setImageDimensions(null);
@@ -91,41 +91,7 @@ export const HistoryPanel: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3">
-            {/* Generations */}
-            {generations.map((generation, index) => {
-              const firstOut = generation.outputAssets?.[0];
-              const url = firstOut?.url;
-              const selected = selectedGenerationId === generation.id;
-              return (
-                <div
-                  key={generation.id}
-                  className={cn(
-                    'relative aspect-square rounded-lg border-2 cursor-pointer transition-all duration-200 overflow-hidden',
-                    selected ? 'border-yellow-400' : 'border-gray-200 hover:border-gray-300'
-                  )}
-                  onClick={() => {
-                    selectGeneration(generation.id);
-                    selectEdit(null);
-                    if (url) setCanvasImage(url);
-                  }}
-                >
-                  {url ? (
-                    <img src={url} alt="Generated variant" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-yellow-400" />
-                    </div>
-                  )}
-
-                  {/* FIX: タイポ修正 bg-white/80 */}
-                  <div className="absolute top-2 left-2 bg-white/80 text-xs px-2 py-1 rounded text-gray-700">
-                    #{index + 1}
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* Edits */}
+            {/* Edits（中心） */}
             {edits.map((edit, index) => {
               const firstOut = edit.outputAssets?.[0];
               const url = firstOut?.url;
@@ -159,6 +125,38 @@ export const HistoryPanel: React.FC = () => {
                 </div>
               );
             })}
+
+            {/* 生成を完全に使わないなら、このブロックは表示されないまま（空配列） */}
+            {generations.map((generation, index) => {
+              const firstOut = generation.outputAssets?.[0];
+              const url = firstOut?.url;
+              const selected = selectedGenerationId === generation.id;
+              return (
+                <div
+                  key={generation.id}
+                  className={cn(
+                    'relative aspect-square rounded-lg border-2 cursor-pointer transition-all duration-200 overflow-hidden',
+                    selected ? 'border-yellow-400' : 'border-gray-200 hover:border-gray-300'
+                  )}
+                  onClick={() => {
+                    selectGeneration(generation.id);
+                    selectEdit(null);
+                    if (url) setCanvasImage(url);
+                  }}
+                >
+                  {url ? (
+                    <img src={url} alt="Generated variant" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-yellow-400" />
+                    </div>
+                  )}
+                  <div className="absolute top-2 left-2 bg-white/80 text-xs px-2 py-1 rounded text-gray-700">
+                    #{index + 1}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -178,75 +176,18 @@ export const HistoryPanel: React.FC = () => {
             )}
             <div className="flex justify-between">
               <span>Mode:</span>
-              <span className="text-gray-700 capitalize">{selectedTool ?? '—'}</span>
+              <span className="text-gray-700 capitalize">{selectedTool ?? 'edit'}</span>
             </div>
           </div>
         </div>
       )}
 
-      {/* Details */}
+      {/* Details（Edit中心） */}
       <div className="mb-6 p-4 bg-white rounded-lg border border-gray-200 shadow-sm flex-1 overflow-y-auto min-h-0">
         <h4 className="text-xs font-semibold text-gray-700 mb-2">Generation Details</h4>
         {(() => {
-          const gen = generations.find((g) => g.id === selectedGenerationId);
           const selEdit = edits.find((e) => e.id === selectedEditId);
-
-          if (gen) {
-            return (
-              <div className="space-y-3">
-                <div className="space-y-2 text-xs text-gray-500">
-                  <div>
-                    <span className="text-gray-700">Prompt:</span>
-                    <p className="text-gray-800 mt-1">{gen.prompt}</p>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Model:</span>
-                    <span>{gen.modelVersion}</span>
-                  </div>
-                  {gen.parameters?.seed != null && (
-                    <div className="flex justify-between">
-                      <span>Seed:</span>
-                      <span>{gen.parameters.seed}</span>
-                    </div>
-                  )}
-                </div>
-
-                {gen.sourceAssets?.length > 0 && (
-                  <div>
-                    <h5 className="text-xs font-semibold text-gray-700 mb-2">Reference Images</h5>
-                    <div className="grid grid-cols-2 gap-2">
-                      {gen.sourceAssets.map((asset, index) => (
-                        <button
-                          key={asset.id}
-                          onClick={() =>
-                            setPreviewModal({
-                              open: true,
-                              imageUrl: asset.url,
-                              title: `Reference Image ${index + 1}`,
-                              description: 'This reference image was used to guide the generation',
-                            })
-                          }
-                          className="relative aspect-square rounded border border-gray-300 hover:border-gray-400 transition-colors overflow-hidden group"
-                        >
-                          <img src={asset.url} alt={`Reference ${index + 1}`} className="w-full h-full object-cover" />
-                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                            <ImageIcon className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                          </div>
-                          <div className="absolute bottom-1 left-1 bg-white/80 text-xs px-1 py-0.5 rounded text-gray-700">
-                            Ref {index + 1}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          } else if (selEdit) {
-            const parentGen = selEdit.parentGenerationId
-              ? generations.find((g) => g.id === selEdit.parentGenerationId)
-              : null;
-
+          if (selEdit) {
             return (
               <div className="space-y-3">
                 <div className="space-y-2 text-xs text-gray-500">
@@ -264,28 +205,6 @@ export const HistoryPanel: React.FC = () => {
                   </div>
                 </div>
 
-                {parentGen?.outputAssets?.[0]?.url && (
-                  <div>
-                    <h5 className="text-xs font-medium text-gray-600 mb-2">Original Image</h5>
-                    <button
-                      onClick={() =>
-                        setPreviewModal({
-                          open: true,
-                          imageUrl: parentGen.outputAssets[0].url,
-                          title: 'Original Image',
-                          description: 'The base image that was edited',
-                        })
-                      }
-                      className="relative aspect-square w-16 rounded border border-gray-300 hover:border-gray-400 transition-colors overflow-hidden group"
-                    >
-                      <img src={parentGen.outputAssets[0].url} alt="Original" className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                        <ImageIcon className="h-3 w-3 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </div>
-                    </button>
-                  </div>
-                )}
-
                 {selEdit.maskReferenceAsset?.url && (
                   <div>
                     <h5 className="text-xs font-medium text-gray-600 mb-2">Masked Reference</h5>
@@ -295,14 +214,13 @@ export const HistoryPanel: React.FC = () => {
                           open: true,
                           imageUrl: selEdit.maskReferenceAsset!.url,
                           title: 'Masked Reference Image',
-                          description:
-                            'This image with mask overlay was sent to the AI model to guide the edit',
+                          description: 'The masked image sent to the model',
                         })
                       }
                       className="relative aspect-square w-16 rounded border border-gray-300 hover:border-gray-400 transition-colors overflow-hidden group"
                     >
                       <img src={selEdit.maskReferenceAsset.url} alt="Masked reference" className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors transition-opacity flex items-center justify-center">
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
                         <ImageIcon className="h-3 w-3 text-white opacity-0 group-hover:opacity-100" />
                       </div>
                       <div className="absolute bottom-1 left-1 bg-purple-900/80 text-xs px-1 py-0.5 rounded text-purple-200">
@@ -315,7 +233,7 @@ export const HistoryPanel: React.FC = () => {
             );
           }
 
-          return <p className="text-xs text-gray-500">Select a generation or edit to view details</p>;
+          return <p className="text-xs text-gray-500">Select an edited image to view details</p>;
         })()}
       </div>
 
@@ -327,16 +245,8 @@ export const HistoryPanel: React.FC = () => {
           className="w-full text-blue-600 hover:text-blue-800 border-blue-600 hover:border-blue-800"
           onClick={async () => {
             let imageUrl: string | null = null;
-            if (selectedGenerationId) {
-              const gen = generations.find((g) => g.id === selectedGenerationId);
-              imageUrl = gen?.outputAssets?.[0]?.url ?? null;
-            } else if (selectedEditId) {
-              const ed = edits.find((e) => e.id === selectedEditId);
-              imageUrl = ed?.outputAssets?.[0]?.url ?? null;
-            } else {
-              imageUrl = canvasImage ?? null;
-            }
-
+            const ed = edits.find((e) => e.id === selectedEditId);
+            imageUrl = ed?.outputAssets?.[0]?.url ?? canvasImage ?? null;
             if (!imageUrl) return;
 
             try {
@@ -362,7 +272,7 @@ export const HistoryPanel: React.FC = () => {
               console.error('single download error', e);
             }
           }}
-          disabled={!selectedGenerationId && !selectedEditId && !canvasImage}
+          disabled={!selectedEditId && !canvasImage}
         >
           <Download className="h-4 w-4 mr-2" />
           Download
@@ -375,7 +285,6 @@ export const HistoryPanel: React.FC = () => {
           onClick={async () => {
             if (!currentProject) return;
             const urls: string[] = [
-              ...generations.map((g) => g.outputAssets?.[0]?.url).filter(Boolean) as string[],
               ...edits.map((e) => e.outputAssets?.[0]?.url).filter(Boolean) as string[],
             ];
 
@@ -405,13 +314,12 @@ export const HistoryPanel: React.FC = () => {
               }
             }
           }}
-          disabled={generations.length + edits.length === 0}
+          disabled={edits.length === 0}
         >
           Download All
         </Button>
       </div>
 
-      {/* Image Preview Modal */}
       <ImagePreviewModal
         open={previewModal.open}
         onOpenChange={(open) => setPreviewModal((prev) => ({ ...prev, open }))}
