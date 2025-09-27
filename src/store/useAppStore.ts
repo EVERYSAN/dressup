@@ -1,164 +1,169 @@
+// src/store/useAppStore.ts
 import { create } from 'zustand';
-import { devtools } from 'zustand/middleware';
-import { Project, Generation, Edit, SegmentationMask, BrushStroke } from '../types';
+import { v4 as uuidv4 } from 'uuid';
 
-interface AppState {
-  // Current project
-  currentProject: Project | null;
-  
-  // Canvas state
-  canvasImage: string | null;
-  canvasZoom: number;
-  canvasPan: { x: number; y: number };
-  
-  // Upload state
-  uploadedImages: string[];
-  editReferenceImages: string[];
-  
-  // Brush strokes for painting masks
-  brushStrokes: BrushStroke[];
-  brushSize: number;
-  showMasks: boolean;
-  
-  // Generation state
-  isGenerating: boolean;
+type Asset = { id: string; url: string };
+type GenParams = { seed?: number | null; temperature?: number | null };
+
+export type Generation = {
+  id: string;
+  prompt: string;
+  modelVersion: string;
+  timestamp: number;
+  sourceAssets: Asset[];   // 参照画像
+  outputAssets: Asset[];   // 生成結果（1枚想定）
+  parameters: GenParams;
+};
+
+export type EditEntry = {
+  id: string;
+  instruction: string;
+  timestamp: number;
+  parentGenerationId?: string | null;
+  outputAssets: Asset[];
+  maskAssetId?: string | null;
+  maskReferenceAsset?: Asset | null;
+};
+
+type Project = {
+  id: string;
+  generations: Generation[];
+  edits: EditEntry[];
+};
+
+type State = {
+  // 左パネル
   currentPrompt: string;
+  selectedTool: 'generate' | 'edit';
   temperature: number;
   seed: number | null;
-  
-  // History and variants
+
+  uploadedImages: string[];       // generate 用参照
+  editReferenceImages: string[];  // edit 用参照
+  canvasImage: string | null;     // 中央の最新1枚
+
+  // パネル表示状態
+  showPromptPanel: boolean;
+  showHistory: boolean;
+
+  // History / Session
+  sessionId: string;
+  currentProject: Project | null;
   selectedGenerationId: string | null;
   selectedEditId: string | null;
-  showHistory: boolean;
-  
-  // Panel visibility
-  showPromptPanel: boolean;
-  
-  // UI state
-  selectedTool: 'generate' | 'edit' | 'mask';
-  
-  // Actions
-  setCurrentProject: (project: Project | null) => void;
-  setCanvasImage: (url: string | null) => void;
-  setCanvasZoom: (zoom: number) => void;
-  setCanvasPan: (pan: { x: number; y: number }) => void;
-  
-  addUploadedImage: (url: string) => void;
-  removeUploadedImage: (index: number) => void;
+
+  // setters / actions
+  setCurrentPrompt: (v: string) => void;
+  setSelectedTool: (t: State['selectedTool']) => void;
+  setTemperature: (t: number) => void;
+  setSeed: (s: number | null) => void;
+
+  addUploadedImage: (d: string) => void;
+  removeUploadedImage: (i: number) => void;
   clearUploadedImages: () => void;
-  
-  addEditReferenceImage: (url: string) => void;
-  removeEditReferenceImage: (index: number) => void;
+
+  addEditReferenceImage: (d: string) => void;
+  removeEditReferenceImage: (i: number) => void;
   clearEditReferenceImages: () => void;
-  
-  addBrushStroke: (stroke: BrushStroke) => void;
-  clearBrushStrokes: () => void;
-  setBrushSize: (size: number) => void;
-  setShowMasks: (show: boolean) => void;
-  
-  setIsGenerating: (generating: boolean) => void;
-  setCurrentPrompt: (prompt: string) => void;
-  setTemperature: (temp: number) => void;
-  setSeed: (seed: number | null) => void;
-  
-  addGeneration: (generation: Generation) => void;
-  addEdit: (edit: Edit) => void;
+
+  setCanvasImage: (d: string | null) => void;
+
+  setShowPromptPanel: (b: boolean) => void;
+  setShowHistory: (b: boolean) => void;
+
+  clearBrushStrokes: () => void; // そのまま残し
+
+  // History:
+  ensureProject: () => void;
+  addGeneration: (g: Omit<Generation, 'id'|'timestamp'>) => Generation;
+  addEdit: (e: Omit<EditEntry, 'id'|'timestamp'>) => EditEntry;
   selectGeneration: (id: string | null) => void;
   selectEdit: (id: string | null) => void;
-  setShowHistory: (show: boolean) => void;
-  
-  setShowPromptPanel: (show: boolean) => void;
-  
-  setSelectedTool: (tool: 'generate' | 'edit' | 'mask') => void;
-}
+  clearHistory: () => void;
+};
 
-export const useAppStore = create<AppState>()(
-  devtools(
-    (set, get) => ({
-      // Initial state
-      currentProject: null,
-      canvasImage: null,
-      canvasZoom: 1,
-      canvasPan: { x: 0, y: 0 },
-      
-      uploadedImages: [],
-      editReferenceImages: [],
-      
-      brushStrokes: [],
-      brushSize: 20,
-      showMasks: true,
-      
-      isGenerating: false,
-      currentPrompt: '',
-      temperature: 0.7,
-      seed: null,
-      
-      selectedGenerationId: null,
-      selectedEditId: null,
-      showHistory: true,
-      
-      showPromptPanel: true,
-      
-      selectedTool: 'generate',
-      
-      // Actions
-      setCurrentProject: (project) => set({ currentProject: project }),
-      setCanvasImage: (url) => set({ canvasImage: url }),
-      setCanvasZoom: (zoom) => set({ canvasZoom: zoom }),
-      setCanvasPan: (pan) => set({ canvasPan: pan }),
-      
-      addUploadedImage: (url) => set((state) => ({ 
-        uploadedImages: [...state.uploadedImages, url] 
-      })),
-      removeUploadedImage: (index) => set((state) => ({ 
-        uploadedImages: state.uploadedImages.filter((_, i) => i !== index) 
-      })),
-      clearUploadedImages: () => set({ uploadedImages: [] }),
-      
-      addEditReferenceImage: (url) => set((state) => ({ 
-        editReferenceImages: [...state.editReferenceImages, url] 
-      })),
-      removeEditReferenceImage: (index) => set((state) => ({ 
-        editReferenceImages: state.editReferenceImages.filter((_, i) => i !== index) 
-      })),
-      clearEditReferenceImages: () => set({ editReferenceImages: [] }),
-      
-      addBrushStroke: (stroke) => set((state) => ({ 
-        brushStrokes: [...state.brushStrokes, stroke] 
-      })),
-      clearBrushStrokes: () => set({ brushStrokes: [] }),
-      setBrushSize: (size) => set({ brushSize: size }),
-      setShowMasks: (show) => set({ showMasks: show }),
-      
-      setIsGenerating: (generating) => set({ isGenerating: generating }),
-      setCurrentPrompt: (prompt) => set({ currentPrompt: prompt }),
-      setTemperature: (temp) => set({ temperature: temp }),
-      setSeed: (seed) => set({ seed: seed }),
-      
-      addGeneration: (generation) => set((state) => ({
-        currentProject: state.currentProject ? {
-          ...state.currentProject,
-          generations: [...state.currentProject.generations, generation],
-          updatedAt: Date.now()
-        } : null
-      })),
-      
-      addEdit: (edit) => set((state) => ({
-        currentProject: state.currentProject ? {
-          ...state.currentProject,
-          edits: [...state.currentProject.edits, edit],
-          updatedAt: Date.now()
-        } : null
-      })),
-      
-      selectGeneration: (id) => set({ selectedGenerationId: id }),
-      selectEdit: (id) => set({ selectedEditId: id }),
-      setShowHistory: (show) => set({ showHistory: show }),
-      
-      setShowPromptPanel: (show) => set({ showPromptPanel: show }),
-      
-      setSelectedTool: (tool) => set({ selectedTool: tool }),
-    }),
-    { name: 'nano-banana-store' }
-  )
-);
+export const useAppStore = create<State>((set, get) => ({
+  currentPrompt: '',
+  selectedTool: 'generate',
+  temperature: 0.7,
+  seed: null,
+
+  uploadedImages: [],
+  editReferenceImages: [],
+  canvasImage: null,
+
+  showPromptPanel: true,
+  showHistory: true,
+
+  sessionId: uuidv4(),
+  currentProject: { id: uuidv4(), generations: [], edits: [] },
+  selectedGenerationId: null,
+  selectedEditId: null,
+
+  setCurrentPrompt: (v) => set({ currentPrompt: v }),
+  setSelectedTool: (t) => set({ selectedTool: t }),
+  setTemperature: (t) => set({ temperature: t }),
+  setSeed: (s) => set({ seed: s }),
+
+  addUploadedImage: (d) => set((s) => ({ uploadedImages: [...s.uploadedImages, d].slice(0, 2) })),
+  removeUploadedImage: (i) => set((s) => ({ uploadedImages: s.uploadedImages.filter((_, idx) => idx !== i) })),
+  clearUploadedImages: () => set({ uploadedImages: [] }),
+
+  addEditReferenceImage: (d) => set((s) => ({ editReferenceImages: [...s.editReferenceImages, d].slice(0, 2) })),
+  removeEditReferenceImage: (i) => set((s) => ({ editReferenceImages: s.editReferenceImages.filter((_, idx) => idx !== i) })),
+  clearEditReferenceImages: () => set({ editReferenceImages: [] }),
+
+  setCanvasImage: (d) => set({ canvasImage: d }),
+
+  setShowPromptPanel: (b) => set({ showPromptPanel: b }),
+  setShowHistory: (b) => set({ showHistory: b }),
+
+  clearBrushStrokes: () => {},
+
+  ensureProject: () => {
+    if (!get().currentProject) set({ currentProject: { id: uuidv4(), generations: [], edits: [] } });
+  },
+
+  addGeneration: (g) => {
+    const gen: Generation = {
+      id: uuidv4(),
+      timestamp: Date.now(),
+      ...g,
+    };
+    set((s) => {
+      const p = s.currentProject ?? { id: uuidv4(), generations: [], edits: [] };
+      return {
+        currentProject: { ...p, generations: [...p.generations, gen] },
+        selectedGenerationId: gen.id,
+        selectedEditId: null,
+      };
+    });
+    return gen;
+  },
+
+  addEdit: (e) => {
+    const ed: EditEntry = {
+      id: uuidv4(),
+      timestamp: Date.now(),
+      ...e,
+    };
+    set((s) => {
+      const p = s.currentProject ?? { id: uuidv4(), generations: [], edits: [] };
+      return {
+        currentProject: { ...p, edits: [...p.edits, ed] },
+        selectedEditId: ed.id,
+        selectedGenerationId: null,
+      };
+    });
+    return ed;
+  },
+
+  selectGeneration: (id) => set({ selectedGenerationId: id, selectedEditId: null }),
+  selectEdit: (id) => set({ selectedEditId: id, selectedGenerationId: null }),
+
+  clearHistory: () => set((s) => ({
+    currentProject: s.currentProject ? { ...s.currentProject, generations: [], edits: [] } : s.currentProject,
+    selectedEditId: null,
+    selectedGenerationId: null,
+  })),
+}));
