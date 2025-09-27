@@ -175,10 +175,15 @@ export const PromptComposer: React.FC = () => {
           {/* 2) Upload を白カード化 */}
           <div className="rounded-lg bg-white border border-emerald-200 p-2 shadow-sm">
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-            <Button variant="outline" onClick={() => fileInputRef.current?.click()} className="w-full">
-              <Upload className="h-4 w-4 mr-2" />
+            <Button
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full text-emerald-700 border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400 font-medium"
+            >
+              <Upload className="h-4 w-4 mr-2 text-emerald-700" />
               Upload
             </Button>
+
           </div>
 
           {/* Base（正方形・白カード＆淡ボーダー） */}
@@ -265,6 +270,7 @@ export const PromptComposer: React.FC = () => {
           disabled={!canEdit}
           className="w-full h-14 text-base font-medium bg-emerald-600 hover:bg-emerald-700 text-white disabled:bg-emerald-300 disabled:cursor-not-allowed"
         >
+
           {isEditPending ? (
             <>
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/80 mr-2" />
