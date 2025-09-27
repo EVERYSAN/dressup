@@ -1,185 +1,159 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { devtools } from 'zustand/middleware';
 
-// ===== 履歴の型 =====
-export type OutputAsset = { id: string; url: string };
-
-export type GenerationItem = {
-  id: string;
-  prompt: string;
-  modelVersion: string;
-  parameters?: { seed?: number | null };
-  sourceAssets: OutputAsset[];
-  outputAssets: OutputAsset[];
-  timestamp: number;
-};
+/* =========
+ * Types
+ * ========= */
+export type EditAsset = { id: string; url: string };
 
 export type EditItem = {
   id: string;
   instruction: string;
-  parentGenerationId?: string | null;
-  maskReferenceAsset?: OutputAsset | null;
-  outputAssets: OutputAsset[];
+  parentGenerationId: string | null;
+  maskReferenceAsset: string | null;
+  outputAssets: EditAsset[];
   timestamp: number;
 };
 
-export type ProjectState = {
+export type Project = {
   id: string;
-  generations: GenerationItem[];
   edits: EditItem[];
+  generations?: any[];
 };
 
-// ===== マスク（現在は未使用でも型は保持） =====
-export type BrushStroke = {
-  id: string;
-  points: number[]; // [x1,y1,x2,y2,...]
-  brushSize: number;
-};
-
-type CanvasPan = { x: number; y: number };
-
-// ===== ストア型 =====
 type AppState = {
-  // 固定モード：Editのみ
-  selectedTool: 'edit';
-
-  // Prompt
+  /* Prompt / params */
   currentPrompt: string;
   setCurrentPrompt: (v: string) => void;
 
-  // 生成パラメータ（モデル側に渡す想定）
   temperature: number;
   setTemperature: (v: number) => void;
 
   seed: number | null;
   setSeed: (v: number | null) => void;
 
-  // 編集用アップロード（Baseは各コンポーネントで保持、ここはRefのみ）
-  editReferenceImages: string[];
-  addEditReferenceImage: (dataUrl: string) => void;
-  removeEditReferenceImage: (index: number) => void;
-  clearEditReferenceImages: () => void;
-
-  // キャンバス表示
-  canvasImage: string | null;
-  setCanvasImage: (url: string | null) => void;
-
-  // キャンバス操作（ズーム/パン/マスク）
-  canvasZoom: number;
-  setCanvasZoom: (z: number) => void;
-  canvasPan: CanvasPan;
-  setCanvasPan: (p: CanvasPan) => void;
-
-  showMasks: boolean;
-  setShowMasks: (v: boolean) => void;
-
-  brushStrokes: BrushStroke[];
-  addBrushStroke: (s: BrushStroke) => void;
-  clearBrushStrokes: () => void;
-
-  // パネル表示
+  /* Side panel / UI */
   showPromptPanel: boolean;
   setShowPromptPanel: (v: boolean) => void;
 
-  // ===== 履歴管理 =====
-  currentProject: ProjectState | null;
-  ensureProject: () => void;
-  addGeneration: (g: GenerationItem) => void; // 将来の拡張用（今は未使用でも保持）
-  addEdit: (e: EditItem) => void;
-
-  selectedGenerationId: string | null;
-  selectedEditId: string | null;
-  selectGeneration: (id: string | null) => void;
-  selectEdit: (id: string | null) => void;
-
   showHistory: boolean;
   setShowHistory: (v: boolean) => void;
+
+  /* Canvas */
+  canvasImage: string | null;
+  setCanvasImage: (url?: string | null) => void;
+
+  /* Mask/brush (将来のために持っておく。今はクリアのみ使用) */
+  brushStrokes: any[];
+  clearBrushStrokes: () => void;
+
+  /* Edit references (左パネルのRef画像) */
+  editReferenceImages: string[];
+  addEditReferenceImage: (url: string) => void;
+  removeEditReferenceImage: (index: number) => void;
+  clearEditReferenceImages: () => void;
+
+  /* Project / History */
+  currentProject?: Project;
+  ensureProject: () => void;
+  addEdit: (edit: EditItem) => void;
+
+  /* Selection */
+  selectedEditId: string | null;
+  selectEdit: (id: string | null) => void;
+
+  selectedGenerationId: string | null;
+  selectGeneration: (id: string | null) => void;
 };
 
+/* =========
+ * Store
+ * ========= */
 export const useAppStore = create<AppState>()(
-  persist(
-    (set, get) => ({
-      selectedTool: 'edit',
+  devtools((set, get) => ({
+    /* Prompt / params */
+    currentPrompt: '',
+    setCurrentPrompt: (v) => set({ currentPrompt: v }),
 
-      currentPrompt: '',
-      setCurrentPrompt: (v) => set({ currentPrompt: v }),
+    temperature: 0.7,
+    setTemperature: (v) => set({ temperature: v }),
 
-      temperature: 0.7,
-      setTemperature: (v) => set({ temperature: v }),
+    seed: null,
+    setSeed: (v) => set({ seed: v }),
 
-      seed: null,
-      setSeed: (v) => set({ seed: v }),
+    /* Side panel / UI */
+    showPromptPanel: true,
+    setShowPromptPanel: (v) => set({ showPromptPanel: v }),
 
-      editReferenceImages: [],
-      addEditReferenceImage: (u) => set((s) => ({ editReferenceImages: [...s.editReferenceImages, u] })),
-      removeEditReferenceImage: (idx) =>
-        set((s) => ({ editReferenceImages: s.editReferenceImages.filter((_, i) => i !== idx) })),
-      clearEditReferenceImages: () => set({ editReferenceImages: [] }),
+    showHistory: true,
+    setShowHistory: (v) => set({ showHistory: v }),
 
-      canvasImage: null,
-      setCanvasImage: (url) => set({ canvasImage: url }),
+    /* Canvas */
+    canvasImage: null,
+    setCanvasImage: (url) => set({ canvasImage: url ?? null }),
 
-      canvasZoom: 1,
-      setCanvasZoom: (z) => set({ canvasZoom: z }),
-      canvasPan: { x: 0, y: 0 },
-      setCanvasPan: (p) => set({ canvasPan: p }),
+    /* Mask/brush */
+    brushStrokes: [],
+    clearBrushStrokes: () => set({ brushStrokes: [] }),
 
-      showMasks: false,
-      setShowMasks: (v) => set({ showMasks: v }),
-
-      brushStrokes: [],
-      addBrushStroke: (s) => set((st) => ({ brushStrokes: [...st.brushStrokes, s] })),
-      clearBrushStrokes: () => set({ brushStrokes: [] }),
-
-      showPromptPanel: true,
-      setShowPromptPanel: (v) => set({ showPromptPanel: v }),
-
-      // ===== 履歴 =====
-      currentProject: null,
-      ensureProject: () => {
-        const s = get();
-        if (!s.currentProject) {
-          set({ currentProject: { id: `proj-${Date.now()}`, generations: [], edits: [] } });
-        }
-      },
-
-      addGeneration: (g) => {
-        const s = get();
-        if (!s.currentProject) s.ensureProject();
-        set((st) => ({
-          currentProject: st.currentProject
-            ? { ...st.currentProject, generations: [g, ...st.currentProject.generations] }
-            : { id: `proj-${Date.now()}`, generations: [g], edits: [] },
-        }));
-      },
-
-      addEdit: (e) => {
-        const s = get();
-        if (!s.currentProject) s.ensureProject();
-        set((st) => ({
-          currentProject: st.currentProject
-            ? { ...st.currentProject, edits: [e, ...st.currentProject.edits] }
-            : { id: `proj-${Date.now()}`, generations: [], edits: [e] },
-        }));
-      },
-
-      selectedGenerationId: null,
-      selectedEditId: null,
-      selectGeneration: (id) => set({ selectedGenerationId: id, selectedEditId: null }),
-      selectEdit: (id) => set({ selectedEditId: id, selectedGenerationId: null }),
-
-      showHistory: true,
-      setShowHistory: (v) => set({ showHistory: v }),
-    }),
-    {
-      name: 'dressup-app-store-edit-only',
-      partialize: (state) => ({
-        temperature: state.temperature,
-        seed: state.seed,
-        editReferenceImages: state.editReferenceImages,
-        currentProject: state.currentProject,
-        showHistory: state.showHistory,
+    /* Edit references */
+    editReferenceImages: [],
+    addEditReferenceImage: (url) =>
+      set((s) => {
+        if (s.editReferenceImages.includes(url)) return s;
+        // Max 2 refs
+        const next = s.editReferenceImages.length >= 2
+          ? [s.editReferenceImages[0], url]
+          : [...s.editReferenceImages, url];
+        return { editReferenceImages: next };
       }),
-    }
-  )
+    removeEditReferenceImage: (index) =>
+      set((s) => {
+        const next = s.editReferenceImages.slice();
+        next.splice(index, 1);
+        return { editReferenceImages: next };
+      }),
+    clearEditReferenceImages: () => set({ editReferenceImages: [] }),
+
+    /* Project / History */
+    currentProject: undefined,
+    ensureProject: () => {
+      set((s) => {
+        if (s.currentProject) return s;
+        return {
+          currentProject: {
+            id: 'local-project',
+            edits: [],
+            generations: [],
+          } as Project,
+        };
+      });
+    },
+
+    addEdit: (edit) => {
+      set((s) => {
+        const proj: Project =
+          s.currentProject ?? { id: 'local-project', edits: [], generations: [] };
+
+        const exists = proj.edits.some((e) => e.id === edit.id);
+        const nextEdits = exists
+          ? proj.edits.map((e) => (e.id === edit.id ? edit : e))
+          : [...proj.edits, edit];
+
+        // 直近100件までに丸める（必要に応じて調整）
+        const limited = nextEdits.slice(-100);
+        return { currentProject: { ...proj, edits: limited } };
+      });
+
+      const len = get().currentProject?.edits.length ?? 0;
+      console.log(`[DRESSUP][store] edits length = ${len}`);
+    },
+
+    /* Selection */
+    selectedEditId: null,
+    selectEdit: (id) => set({ selectedEditId: id }),
+
+    selectedGenerationId: null,
+    selectGeneration: (id) => set({ selectedGenerationId: id }),
+  }))
 );
