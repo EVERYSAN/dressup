@@ -1,4 +1,5 @@
-import React, { useRef, useEffect, useState } from 'react';
+// src/components/ImageCanvas.tsx
+import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { Stage, Layer, Image as KonvaImage, Line } from 'react-konva';
 import { useAppStore } from '../store/useAppStore';
 import { Button } from './ui/Button';
@@ -23,30 +24,34 @@ export const ImageCanvas: React.FC = () => {
     setBrushSize,
   } = useAppStore();
 
+  // 安全デフォルト
+  const z = typeof canvasZoom === 'number' && Number.isFinite(canvasZoom) ? canvasZoom : 1;
+  const pan = canvasPan ?? { x: 0, y: 0 };
+  const strokes = Array.isArray(brushStrokes) ? brushStrokes : [];
+
   const stageRef = useRef<any>(null);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentStroke, setCurrentStroke] = useState<number[]>([]);
 
-  // 安全: 画像の左上オフセット（ステージ座標）を計算
-  const imageOffset = React.useMemo(() => {
+  // 画像の左上座標（ステージ座標）を計算
+  const imageOffset = useMemo(() => {
     const iw = image?.width ?? 0;
     const ih = image?.height ?? 0;
-    const { width: sw, height: sh } = stageSize;
-    const zoom = canvasZoom || 1;
-    const x = (sw / zoom - iw) / 2;
-    const y = (sh / zoom - ih) / 2;
+    const x = (stageSize.width / z - iw) / 2;
+    const y = (stageSize.height / z - ih) / 2;
     return { x, y };
-  }, [image, stageSize, canvasZoom]);
+  }, [image, stageSize, z]);
 
-  // 画像ロード時のオートフィット
+  // 画像ロード & オートフィット
   useEffect(() => {
     if (canvasImage) {
       const img = new window.Image();
       img.onload = () => {
         setImage(img);
-        if ((canvasZoom ?? 1) === 1 && (canvasPan?.x ?? 0) === 0 && (canvasPan?.y ?? 0) === 0) {
+        // 初回のみ自動フィット（任意ロジック）
+        if (z === 1 && pan.x === 0 && pan.y === 0) {
           const isMobile = window.innerWidth < 768;
           const padding = isMobile ? 0.9 : 0.8;
           const scaleX = (stageSize.width * padding) / img.width;
@@ -61,7 +66,7 @@ export const ImageCanvas: React.FC = () => {
     } else {
       setImage(null);
     }
-  }, [canvasImage, stageSize, setCanvasZoom, setCanvasPan, canvasZoom, canvasPan]);
+  }, [canvasImage, stageSize, setCanvasZoom, setCanvasPan]); // z/pan は依存に入れない
 
   // ステージサイズ追従
   useEffect(() => {
@@ -76,11 +81,11 @@ export const ImageCanvas: React.FC = () => {
     return () => window.removeEventListener('resize', updateSize);
   }, []);
 
-  // ポインタ取得（null/undefined 安全）
+  // ポインタ（相対座標）を安全取得
   const getRelativePointerSafe = () => {
     const stage = stageRef.current;
-    if (!stage) return null;
-    const pos = stage.getRelativePointerPosition?.();
+    if (!stage?.getRelativePointerPosition) return null;
+    const pos = stage.getRelativePointerPosition();
     if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') return null;
     return pos;
   };
@@ -90,11 +95,11 @@ export const ImageCanvas: React.FC = () => {
     const pos = getRelativePointerSafe();
     if (!pos) return;
 
-    const relativeX = pos.x - imageOffset.x;
-    const relativeY = pos.y - imageOffset.y;
-    if (relativeX >= 0 && relativeX <= (image?.width ?? 0) && relativeY >= 0 && relativeY <= (image?.height ?? 0)) {
+    const rx = pos.x - imageOffset.x;
+    const ry = pos.y - imageOffset.y;
+    if (rx >= 0 && rx <= image.width && ry >= 0 && ry <= image.height) {
       setIsDrawing(true);
-      setCurrentStroke([relativeX, relativeY]);
+      setCurrentStroke([rx, ry]);
     }
   };
 
@@ -103,10 +108,10 @@ export const ImageCanvas: React.FC = () => {
     const pos = getRelativePointerSafe();
     if (!pos) return;
 
-    const relativeX = pos.x - imageOffset.x;
-    const relativeY = pos.y - imageOffset.y;
-    if (relativeX >= 0 && relativeX <= (image?.width ?? 0) && relativeY >= 0 && relativeY <= (image?.height ?? 0)) {
-      setCurrentStroke((prev) => [...prev, relativeX, relativeY]);
+    const rx = pos.x - imageOffset.x;
+    const ry = pos.y - imageOffset.y;
+    if (rx >= 0 && rx <= image.width && ry >= 0 && ry <= image.height) {
+      setCurrentStroke((prev) => [...prev, rx, ry]);
     }
   };
 
@@ -117,14 +122,14 @@ export const ImageCanvas: React.FC = () => {
       addBrushStroke({
         id: `stroke-${Date.now()}`,
         points: currentStroke.slice(),
-        brushSize,
+        brushSize: brushSize ?? 10,
       });
     }
     setCurrentStroke([]);
   };
 
   const handleZoom = (delta: number) => {
-    const newZoom = Math.max(0.1, Math.min(3, (canvasZoom || 1) + delta));
+    const newZoom = Math.max(0.1, Math.min(3, z + delta));
     setCanvasZoom(newZoom);
   };
 
@@ -132,8 +137,8 @@ export const ImageCanvas: React.FC = () => {
     if (!image) return;
     const isMobile = window.innerWidth < 768;
     const padding = isMobile ? 0.9 : 0.8;
-    const scaleX = (stageSize.width * padding) / (image.width || 1);
-    const scaleY = (stageSize.height * padding) / (image.height || 1);
+    const scaleX = (stageSize.width * padding) / image.width;
+    const scaleY = (stageSize.height * padding) / image.height;
     const maxZoom = isMobile ? 0.3 : 0.8;
     const optimalZoom = Math.min(scaleX, scaleY, maxZoom);
     setCanvasZoom(Number.isFinite(optimalZoom) && optimalZoom > 0 ? optimalZoom : 1);
@@ -152,22 +157,21 @@ export const ImageCanvas: React.FC = () => {
     }
   };
 
-  // キャンバス平行移動の安全値
-  const panX = ((canvasPan?.x ?? 0) * (canvasZoom || 1));
-  const panY = ((canvasPan?.y ?? 0) * (canvasZoom || 1));
+  // ステージ適用オフセット（ズーム込み）
+  const panX = pan.x * z;
+  const panY = pan.y * z;
 
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
       <div className="p-3 border-b border-gray-200 bg-white">
         <div className="flex items-center justify-between">
-          {/* Left: Zoom */}
           <div className="flex items-center space-x-2">
             <Button variant="outline" size="sm" onClick={() => handleZoom(-0.1)}>
               <ZoomOut className="h-4 w-4" />
             </Button>
             <span className="text-sm text-gray-600 min-w-[60px] text-center">
-              {Math.round((canvasZoom || 1) * 100)}%
+              {Math.round(z * 100)}%
             </span>
             <Button variant="outline" size="sm" onClick={() => handleZoom(0.1)}>
               <ZoomIn className="h-4 w-4" />
@@ -177,7 +181,6 @@ export const ImageCanvas: React.FC = () => {
             </Button>
           </div>
 
-          {/* Right: Mask tools & Download */}
           <div className="flex items-center space-x-2">
             {selectedTool === 'mask' && (
               <>
@@ -187,13 +190,18 @@ export const ImageCanvas: React.FC = () => {
                     type="range"
                     min="5"
                     max="50"
-                    value={brushSize}
-                    onChange={(e) => setBrushSize(parseInt(e.target.value))}
+                    value={brushSize ?? 10}
+                    onChange={(e) => setBrushSize(parseInt(e.target.value || '10', 10))}
                     className="w-16 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
                   />
-                  <span className="text-xs text-gray-400 w-6">{brushSize}</span>
+                  <span className="text-xs text-gray-400 w-6">{brushSize ?? 10}</span>
                 </div>
-                <Button variant="outline" size="sm" onClick={clearBrushStrokes} disabled={brushStrokes.length === 0}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={clearBrushStrokes}
+                  disabled={strokes.length === 0}
+                >
                   <Eraser className="h-4 w-4" />
                 </Button>
               </>
@@ -219,12 +227,11 @@ export const ImageCanvas: React.FC = () => {
         </div>
       </div>
 
-      {/* Canvas */}
+      {/* Canvas Area */}
       <div id="canvas-container" className="flex-1 relative overflow-hidden bg-white">
         {!image && !isGenerating && (
           <div className="absolute inset-0 grid place-items-center px-4">
-            {/* 省略: ウェルカムカード（そのまま） */}
-            {/* … */}
+            {/* ここはそのまま（省略可） */}
           </div>
         )}
 
@@ -241,18 +248,17 @@ export const ImageCanvas: React.FC = () => {
           ref={stageRef}
           width={stageSize.width}
           height={stageSize.height}
-          scaleX={canvasZoom || 1}
-          scaleY={canvasZoom || 1}
+          scaleX={z}
+          scaleY={z}
           x={panX}
           y={panY}
           draggable={selectedTool !== 'mask'}
           onDragEnd={(e) => {
-            const z = canvasZoom || 1;
             setCanvasPan({ x: e.target.x() / z, y: e.target.y() / z });
           }}
           onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}  // ← 大文字小文字 修正
-          onMouseUp={handleMouseUp}      // ← 大文字小文字 修正
+          onMouseMove={handleMouseMove}  // ← 大文字小文字修正
+          onMouseUp={handleMouseUp}      // ← 大文字小文字修正
           style={{ cursor: selectedTool === 'mask' ? 'crosshair' : 'default' }}
         >
           <Layer>
@@ -266,12 +272,12 @@ export const ImageCanvas: React.FC = () => {
 
             {/* Brush Strokes */}
             {showMasks &&
-              brushStrokes.map((stroke) => (
+              strokes.map((stroke) => (
                 <Line
                   key={stroke.id}
                   points={Array.isArray(stroke.points) ? stroke.points : []}
                   stroke="#A855F7"
-                  strokeWidth={stroke.brushSize}
+                  strokeWidth={stroke.brushSize ?? 10}
                   tension={0.5}
                   lineCap="round"
                   lineJoin="round"
@@ -287,7 +293,7 @@ export const ImageCanvas: React.FC = () => {
               <Line
                 points={currentStroke}
                 stroke="#A855F7"
-                strokeWidth={brushSize}
+                strokeWidth={brushSize ?? 10}
                 tension={0.5}
                 lineCap="round"
                 lineJoin="round"
@@ -305,8 +311,10 @@ export const ImageCanvas: React.FC = () => {
       <div className="p-3 border-t border-gray-200 bg-white">
         <div className="flex items-center justify-between text-xs text-gray-600">
           <div className="flex items-center space-x-4">
-            {brushStrokes.length > 0 && (
-              <span className="text-yellow-600">{brushStrokes.length} brush stroke{brushStrokes.length !== 1 ? 's' : ''}</span>
+            {strokes.length > 0 && (
+              <span className="text-yellow-600">
+                {strokes.length} brush stroke{strokes.length !== 1 ? 's' : ''}
+              </span>
             )}
           </div>
           <div className="flex items-center space-x-2">
