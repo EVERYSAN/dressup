@@ -290,7 +290,7 @@ export const PromptComposer: React.FC = () => {
 
           {showClearConfirm && (
             <div className="mt-3 p-3 bg-gray-800 rounded-lg border border-gray-700">
-              <p className="text-xs text-gray-300 mb-3">
+              <p className="text-xs text-gray-600 mb-3">
                 Are you sure you want to clear this session? This will remove all uploads, prompts, and canvas content.
               </p>
               <div className="flex space-x-2">
