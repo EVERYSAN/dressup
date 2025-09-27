@@ -1,9 +1,10 @@
+// src/components/PromptComposer.tsx
 import React, { useState, useRef } from 'react';
 import { Textarea } from './ui/Textarea';
 import { Button } from './ui/Button';
 import { useAppStore } from '../store/useAppStore';
 import { useImageGeneration, useImageEditing } from '../hooks/useImageGeneration';
-import { Upload, Wand2, Edit3, MousePointer, HelpCircle, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
+import { Upload, Wand2, Edit3, HelpCircle, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
 import { PromptHints } from './PromptHints';
 import { cn } from '../utils/cn';
 import { resizeFileToDataURL, base64SizeMB } from '../utils/resizeImage';
@@ -18,22 +19,29 @@ export const PromptComposer: React.FC = () => {
     setTemperature,
     seed,
     setSeed,
+
+    // 生成モード用のアップロード（参照用）
     uploadedImages,
     addUploadedImage,
     removeUploadedImage,
     clearUploadedImages,
+
+    // 編集モード用の参照画像（最大2）
     editReferenceImages,
     addEditReferenceImage,
     removeEditReferenceImage,
     clearEditReferenceImages,
+
+    // 中央キャンバスに表示する画像（生成物や編集中の対象）
     canvasImage,
     setCanvasImage,
+
     showPromptPanel,
     setShowPromptPanel,
     clearBrushStrokes,
   } = useAppStore();
 
-  // ★ 追加：不変の Base 表示用（最初の1枚を保持）
+  // ★ BASE（1枚目）を固定表示するためのローカル state
   const [baseImage, setBaseImage] = useState<string | null>(null);
 
   const { generate, isPending: isGenPending } = useImageGeneration();
@@ -51,10 +59,12 @@ export const PromptComposer: React.FC = () => {
     }
   };
 
+  // 生成/編集の実行：生成物は「中央（canvasImage）」のみ更新、左リストには追加しない
   const handleGenerateOrEdit = async () => {
     const prompt = currentPrompt.trim();
     if (!prompt) return;
 
+    // 送信前に大きさチェック（3.5MB目安）
     const approxTotalMB = (() => {
       const parts: string[] = [];
       if (selectedTool === 'generate') {
@@ -65,7 +75,6 @@ export const PromptComposer: React.FC = () => {
       }
       return parts.reduce((sum, p) => sum + base64SizeMB(p), 0);
     })();
-
     if (approxTotalMB > 3.5) {
       console.warn(`[DRESSUP] payload too large (~${approxTotalMB.toFixed(2)} MB). Try smaller images.`);
       return;
@@ -75,16 +84,33 @@ export const PromptComposer: React.FC = () => {
       if (selectedTool === 'generate') {
         assertFn('generate', generate);
         const referenceImages = uploadedImages.length > 0 ? uploadedImages : undefined;
-        await generate({ prompt, referenceImages });
-      } else if (selectedTool === 'edit' || selectedTool === 'mask') {
+        // 生成：結果は中央にのみ反映（左リストには追加しない）
+        const resp: any = await generate({ prompt, referenceImages });
+        const parts = resp?.candidates?.[0]?.content?.parts;
+        const img = parts?.find((p: any) => p?.inlineData?.data)?.inlineData;
+        if (img?.data) {
+          const mime = img?.mimeType || 'image/png';
+          setCanvasImage(`data:${mime};base64,${img.data}`);
+        }
+      } else if (selectedTool === 'edit') {
         assertFn('edit', edit);
-        await edit(prompt);
+        // 編集：結果は中央にのみ反映（BASEは不変）
+        const resp: any = await edit(prompt);
+        const parts = resp?.candidates?.[0]?.content?.parts;
+        const img = parts?.find((p: any) => p?.inlineData?.data)?.inlineData;
+        if (img?.data) {
+          const mime = img?.mimeType || 'image/png';
+          setCanvasImage(`data:${mime};base64,${img.data}`);
+        }
       }
     } catch (e) {
       console.error('[DRESSUP] handleGenerateOrEdit failed', e);
     }
   };
 
+  // 画像アップロード：
+  // - Generate：そのまま参照画像（最大2）
+  // - Edit：最初の1枚を BASE（固定）& 中央（canvas）へ、2枚目以降は参照へ
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
@@ -98,20 +124,16 @@ export const PromptComposer: React.FC = () => {
             addUploadedImage(dataUrl);
           }
         } else if (selectedTool === 'edit') {
-          // ★ 最初の1枚は Base（固定表示）＆ canvas（編集対象）に同時セット
           if (!baseImage) {
+            // 1枚目は BASE に固定し、中央にも表示（編集対象）
             setBaseImage(dataUrl);
             setCanvasImage(dataUrl);
           } else {
-            // 2枚目以降は参照に追加
+            // 2枚目以降は参照（最大2）
             if (!editReferenceImages.includes(dataUrl) && editReferenceImages.length < 2) {
               addEditReferenceImage(dataUrl);
             }
           }
-        } else if (selectedTool === 'mask') {
-          clearUploadedImages();
-          addUploadedImage(dataUrl);
-          setCanvasImage(dataUrl);
         }
       } catch (error) {
         console.error('Failed to upload image:', error);
@@ -124,18 +146,17 @@ export const PromptComposer: React.FC = () => {
     clearUploadedImages();
     clearEditReferenceImages();
     clearBrushStrokes();
-    // ★ Base と canvas を両方クリア
-    setBaseImage(null);
-    setCanvasImage(null);
+    setBaseImage(null);       // BASE もクリア
+    setCanvasImage(null);     // 中央もクリア
     setSeed(null);
     setTemperature(0.7);
     setShowClearConfirm(false);
   };
 
+  // ★ マスク機能は削除：ツールは Generate / Edit のみ
   const tools = [
     { id: 'generate', icon: Wand2, label: 'Generate', description: 'Create from text' },
     { id: 'edit', icon: Edit3, label: 'Edit', description: 'Modify existing' },
-    { id: 'mask', icon: MousePointer, label: 'Select', description: 'Click to select' },
   ] as const;
 
   if (!showPromptPanel) {
@@ -158,11 +179,12 @@ export const PromptComposer: React.FC = () => {
 
   const hasPrompt = currentPrompt.trim().length > 0;
   const canGenerate = selectedTool === 'generate' && hasPrompt && !isGenPending;
-  const canEdit = (selectedTool === 'edit' || selectedTool === 'mask') && hasPrompt && !!canvasImage && !isEditPending;
+  const canEdit = selectedTool === 'edit' && hasPrompt && !!baseImage && !isEditPending;
 
   return (
     <>
       <div className="w-80 lg:w-72 xl:w-80 h-full bg-gray-950 border-r border-gray-200 p-6 flex flex-col space-y-6 overflow-y-auto">
+        {/* Mode */}
         <div>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium text-gray-300">Mode</h3>
@@ -181,7 +203,7 @@ export const PromptComposer: React.FC = () => {
               </Button>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {tools.map((tool) => (
               <button
                 key={tool.id}
@@ -200,83 +222,81 @@ export const PromptComposer: React.FC = () => {
           </div>
         </div>
 
-        {/* File Upload */}
+        {/* Uploads */}
         <div>
-          <div>
-            <label className="text-sm font-medium text-gray-300 mb-1 block">
-              {selectedTool === 'generate' ? 'Reference Images' : selectedTool === 'edit' ? 'Style References' : 'Upload Image'}
-            </label>
-            {selectedTool === 'mask' && <p className="text-xs text-gray-400 mb-3">Edit an image with masks</p>}
-            {selectedTool === 'generate' && <p className="text-xs text-gray-500 mb-3">Optional, up to 2 images</p>}
-            {selectedTool === 'edit' && (
-              <p className="text-xs text-gray-500 mb-3">
-                {baseImage ? 'Optional style references, up to 2 images' : 'Upload image to edit, up to 2 images'}
-              </p>
-            )}
-            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-            <Button
-              variant="outline"
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full"
-              disabled={
-                (selectedTool === 'generate' && uploadedImages.length >= 2) ||
-                (selectedTool === 'edit' && editReferenceImages.length >= 2)
-              }
-            >
-              <Upload className="h-4 w-4 mr-2" />
-              Upload
-            </Button>
+          <label className="text-sm font-medium text-gray-300 mb-1 block">
+            {selectedTool === 'generate' ? 'Reference Images' : 'Style References'}
+          </label>
+          {selectedTool === 'generate' && <p className="text-xs text-gray-500 mb-3">Optional, up to 2 images</p>}
+          {selectedTool === 'edit' && (
+            <p className="text-xs text-gray-500 mb-3">
+              {baseImage ? 'Optional style references, up to 2 images' : 'Upload the base image (1st), then optional references'}
+            </p>
+          )}
 
-            {/* ★ Base Image（Editモードのみ、不変の baseImage を表示） */}
-            {selectedTool === 'edit' && baseImage && (
-              <div className="mt-3 space-y-2">
-                <div className="relative">
-                  <img
-                    src={baseImage}
-                    alt="Base"
-                    className="w-full h-24 object-cover rounded-lg border border-gray-700"
-                  />
+          <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+          <Button
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full"
+            disabled={
+              (selectedTool === 'generate' && uploadedImages.length >= 2) ||
+              (selectedTool === 'edit' && editReferenceImages.length >= 2)
+            }
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Upload
+          </Button>
+
+          {/* ★ 左：BASE（固定） */}
+          {selectedTool === 'edit' && baseImage && (
+            <div className="mt-3 space-y-2">
+              <div className="relative">
+                <img
+                  src={baseImage}
+                  alt="Base"
+                  className="w-full h-24 object-cover rounded-lg border border-gray-700"
+                />
+                <button
+                  onClick={() => {
+                    setBaseImage(null);
+                    setCanvasImage(null);
+                    clearEditReferenceImages();
+                  }}
+                  className="absolute top-1 right-1 bg-white/80 text-gray-700 hover:text-gray-900 rounded-full p-1 transition-colors"
+                  title="Clear base image"
+                >
+                  ×
+                </button>
+                <div className="absolute bottom-1 left-1 bg-white/80 text-xs px-2 py-1 rounded text-gray-700 font-medium">
+                  Base
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 参照画像（Edit: Baseの下／Generate: そのまま） */}
+          {((selectedTool === 'generate' && uploadedImages.length > 0) ||
+            (selectedTool === 'edit' && editReferenceImages.length > 0)) && (
+            <div className="mt-3 space-y-2">
+              {(selectedTool === 'generate' ? uploadedImages : editReferenceImages).map((image, index) => (
+                <div key={index} className="relative">
+                  <img src={image} alt={`Reference ${index + 1}`} className="w-full h-20 object-cover rounded-lg border border-gray-700" />
                   <button
-                    onClick={() => {
-                      setBaseImage(null);
-                      setCanvasImage(null);
-                      clearEditReferenceImages();
-                    }}
+                    onClick={() => (selectedTool === 'generate' ? removeUploadedImage(index) : removeEditReferenceImage(index))}
                     className="absolute top-1 right-1 bg-white/80 text-gray-700 hover:text-gray-900 rounded-full p-1 transition-colors"
-                    title="Clear base image"
+                    title="Remove"
                   >
                     ×
                   </button>
-                  <div className="absolute bottom-1 left-1 bg-white/80 text-xs px-2 py-1 rounded text-gray-700 font-medium">
-                    Base
-                  </div>
+                  <div className="absolute bottom-1 left-1 bg-white/80 text-xs px-2 py-1 rounded text-gray-700">Ref {index + 1}</div>
                 </div>
-              </div>
-            )}
-
-            {/* Style References / Reference Images */}
-            {((selectedTool === 'generate' && uploadedImages.length > 0) ||
-              (selectedTool === 'edit' && editReferenceImages.length > 0)) && (
-              <div className="mt-3 space-y-2">
-                {(selectedTool === 'generate' ? uploadedImages : editReferenceImages).map((image, index) => (
-                  <div key={index} className="relative">
-                    <img src={image} alt={`Reference ${index + 1}`} className="w-full h-20 object-cover rounded-lg border border-gray-700" />
-                    <button
-                      onClick={() => (selectedTool === 'generate' ? removeUploadedImage(index) : removeEditReferenceImage(index))}
-                      className="absolute top-1 right-1 bg-white/80 text-gray-700 hover:text-gray-900 rounded-full p-1 transition-colors"
-                      title="Remove"
-                    >
-                      ×
-                    </button>
-                    <div className="absolute bottom-1 left-1 bg-white/80 text-xs px-2 py-1 rounded text-gray-700">Ref {index + 1}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Prompt Input */}
+        {/* Prompt */}
         <div>
           <label className="text-sm font-medium text-gray-300 mb-3 block">
             {selectedTool === 'generate' ? 'Describe what you want to create' : 'Describe your changes'}
@@ -286,8 +306,8 @@ export const PromptComposer: React.FC = () => {
             onChange={(e) => setCurrentPrompt(e.target.value)}
             placeholder={
               selectedTool === 'generate'
-                ? 'A serene mountain landscape at sunset with a lake reflecting the golden sky...'
-                : 'Replace the jacket with the uploaded one, add a silver necklace...'
+                ? 'A product hero image on white background...'
+                : 'Replace the 1st outfit with the 2nd reference; keep pose and lighting...'
             }
             className="min-h-[120px] resize-none"
           />
@@ -304,7 +324,7 @@ export const PromptComposer: React.FC = () => {
           </button>
         </div>
 
-        {/* Generate / Apply Edit Button */}
+        {/* Execute Buttons */}
         <Button
           onClick={handleGenerateOrEdit}
           disabled={selectedTool === 'generate' ? !canGenerate : !canEdit}
@@ -335,7 +355,7 @@ export const PromptComposer: React.FC = () => {
           )}
         </Button>
 
-        {/* Advanced Controls */}
+        {/* Advanced / Clear */}
         <div>
           <button
             onClick={() => setShowAdvanced(!showAdvanced)}
@@ -402,7 +422,6 @@ export const PromptComposer: React.FC = () => {
           <div className="space-y-1 text-xs text-gray-500">
             <div className="flex justify-between"><span>Generate</span><span>⌘ + Enter</span></div>
             <div className="flex justify-between"><span>Re-roll</span><span>⇧ + R</span></div>
-            <div className="flex justify-between"><span>Edit mode</span><span>E</span></div>
             <div className="flex justify-between"><span>History</span><span>H</span></div>
             <div className="flex justify-between"><span>Toggle Panel</span><span>P</span></div>
           </div>
