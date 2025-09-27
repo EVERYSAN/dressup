@@ -1,351 +1,159 @@
-// src/components/ImageCanvas.tsx
-import React, { useRef, useEffect, useState, useMemo } from 'react';
-import { Stage, Layer, Image as KonvaImage, Line } from 'react-konva';
-import { useAppStore } from '../store/useAppStore';
-import { Button } from './ui/Button';
-import { RotateCcw, Download, Eye, EyeOff, Eraser } from 'lucide-react';
-import { cn } from '../utils/cn';
+import { create } from 'zustand';
+import { devtools } from 'zustand/middleware';
 
-// 0.1〜3.0 のような「ズーム管理」はもう使わない。
-// すべて「コンテナに収まるスケール = fitScale」で描画する。
-const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+/* =========
+ * Types
+ * ========= */
+export type EditAsset = { id: string; url: string };
 
-export const ImageCanvas: React.FC = () => {
-  const {
-    canvasImage,
-    // ズーム・パンは使わないが、既存ストアに残っていても無視する
-    brushStrokes,
-    addBrushStroke,
-    clearBrushStrokes,
-    showMasks,
-    setShowMasks,
-    selectedTool,
-    isGenerating,
-    brushSize,
-    setBrushSize,
-  } = useAppStore();
-
-  // === Refs
-  const stageRef = useRef<any>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // === Local state
-  const [image, setImage] = useState<HTMLImageElement | null>(null);
-  const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [currentStroke, setCurrentStroke] = useState<number[]>([]);
-
-  // === コンテナサイズ追従
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const applySize = () => {
-      const rect = el.getBoundingClientRect();
-      const w = Math.max(1, Math.floor(rect.width));
-      const h = Math.max(1, Math.floor(rect.height));
-      setStageSize({ width: w, height: h });
-    };
-    applySize();
-
-    const ro = new ResizeObserver(() => applySize());
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // === 画像ロード
-  useEffect(() => {
-    if (!canvasImage) {
-      setImage(null);
-      return;
-    }
-    const img = new Image();
-    img.onload = () => setImage(img);
-    img.src = canvasImage;
-  }, [canvasImage]);
-
-  // === fitScale: 画像がコンテナに収まる倍率（拡大しない＝最大1）
-  const fitScale = useMemo(() => {
-    if (!image) return 1;
-    const padding = 0.92; // 余白（UIぶつかり回避）
-    const sx = (stageSize.width * padding) / image.width;
-    const sy = (stageSize.height * padding) / image.height;
-    const fit = Math.min(sx, sy);
-    // 小さい画像はぼかさないため等倍を上限にする
-    return clamp(fit, 0.1, 1);
-  }, [image, stageSize]);
-
-  // === ステージにおける画像の左上（fitScaleで中央配置）
-  const imageOffset = useMemo(() => {
-    const iw = image?.width ?? 0;
-    const ih = image?.height ?? 0;
-    const x = (stageSize.width / fitScale - iw) / 2;
-    const y = (stageSize.height / fitScale - ih) / 2;
-    return { x, y };
-  }, [image, stageSize, fitScale]);
-
-  // === マスク描画（ステージ座標は「スケール前」の論理座標で来る）
-  const getRelativePointerSafe = () => {
-    const stage = stageRef.current;
-    if (!stage?.getRelativePointerPosition) return null;
-    const pos = stage.getRelativePointerPosition();
-    if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') return null;
-    return pos;
-    // ここで得られる x/y は scale 適用前の座標系なのでそのまま扱える
-  };
-
-  const handleMouseDown = () => {
-    if (selectedTool !== 'mask' || !image) return;
-    const pos = getRelativePointerSafe();
-    if (!pos) return;
-    const rx = pos.x - imageOffset.x;
-    const ry = pos.y - imageOffset.y;
-    if (rx >= 0 && rx <= image.width && ry >= 0 && ry <= image.height) {
-      setIsDrawing(true);
-      setCurrentStroke([rx, ry]);
-    }
-  };
-
-  const handleMouseMove = () => {
-    if (!isDrawing || selectedTool !== 'mask' || !image) return;
-    const pos = getRelativePointerSafe();
-    if (!pos) return;
-    const rx = pos.x - imageOffset.x;
-    const ry = pos.y - imageOffset.y;
-    if (rx >= 0 && rx <= image.width && ry >= 0 && ry <= image.height) {
-      setCurrentStroke((prev) => [...prev, rx, ry]);
-    }
-  };
-
-  const handleMouseUp = () => {
-    if (!isDrawing) return;
-    setIsDrawing(false);
-    if (currentStroke.length >= 4) {
-      addBrushStroke({
-        id: `stroke-${Date.now()}`,
-        points: currentStroke.slice(),
-        brushSize: brushSize ?? 10,
-      });
-    }
-    setCurrentStroke([]);
-  };
-
-  const handleReset = () => {
-    // もはやズームやパンは無いが、「初期位置に戻す」意味で描画中を破棄
-    setIsDrawing(false);
-    setCurrentStroke([]);
-  };
-
-  // === ダウンロード
-  const handleDownload = () => {
-    if (!canvasImage) return;
-    if (canvasImage.startsWith('data:')) {
-      const link = document.createElement('a');
-      link.href = canvasImage;
-      link.download = `dressup-${Date.now()}.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
-  };
-
-  return (
-    <div className="flex flex-col h-full">
-      {/* Toolbar（前面・クリック可） */}
-      <div className="p-3 border-b border-gray-200 bg-white relative z-10 pointer-events-auto">
-        <div className="flex items-center justify-between">
-          {/* 左側：ズームUIは撤去、最低限だけ */}
-          <div className="flex items-center space-x-2">
-            <Button variant="outline" size="sm" onClick={handleReset} title="初期状態に戻す">
-              <RotateCcw className="h-4 w-4" />
-            </Button>
-          </div>
-
-          {/* 右側：マスク・DL等は従来通り */}
-          <div className="flex items-center space-x-2">
-            {selectedTool === 'mask' && (
-              <>
-                <div className="flex items-center space-x-2 mr-2">
-                  <span className="text-xs text-gray-400">Brush:</span>
-                  <input
-                    type="range"
-                    min="5"
-                    max="50"
-                    value={brushSize ?? 10}
-                    onChange={(e) => setBrushSize(parseInt(e.target.value || '10', 10))}
-                    className="w-16 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-                  />
-                  <span className="text-xs text-gray-400 w-6">{brushSize ?? 10}</span>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={clearBrushStrokes}
-                  disabled={!Array.isArray(brushStrokes) || brushStrokes.length === 0}
-                  title="すべてのストロークを消去"
-                >
-                  <Eraser className="h-4 w-4" />
-                </Button>
-              </>
-            )}
-
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowMasks(!showMasks)}
-              className={cn(showMasks && 'bg-yellow-400/10 border-yellow-400/50')}
-              title="マスク表示切替"
-            >
-              {showMasks ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-              <span className="hidden sm:inline ml-2 text-gray-600">マスク</span>
-            </Button>
-
-            {canvasImage && (
-              <Button variant="secondary" size="sm" onClick={handleDownload}>
-                <Download className="h-4 w-4 mr-2" />
-                <span className="hidden sm:inline">Download</span>
-              </Button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Canvas */}
-      <div
-        ref={containerRef}
-        id="canvas-container"
-        className="flex-1 relative overflow-hidden bg-white touch-none"
-      >
-        {/* プレースホルダー */}
-        {!image && !isGenerating && (
-          <div className="absolute inset-0 grid place-items-center px-4">
-            <div className="w-full max-w-xl rounded-2xl border border-gray-200 bg-white shadow-sm p-6">
-              <h2 className="text-2xl font-semibold text-gray-900 text-center tracking-tight">
-                DRESSUP へようこそ
-              </h2>
-              <p className="mt-2 text-sm text-gray-600 text-center">
-                3分で使い始められます。左の「編集」からどうぞ。
-              </p>
-              <ol className="mt-6 space-y-4 text-gray-800">
-                <li className="flex gap-3">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-900 text-white text-xs font-semibold">1</span>
-                  <div className="leading-relaxed">
-                    <div className="font-medium">画像を2枚アップロード</div>
-                    <ul className="mt-1 ml-6 list-disc text-sm text-gray-600">
-                      <li>1枚目：変更元画像（モデルの人物写真）</li>
-                      <li>2枚目：差し替えたい画像（服やアクセサリーの写真）</li>
-                    </ul>
-                  </div>
-                </li>
-                <li className="flex gap-3">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-900 text-white text-xs font-semibold">2</span>
-                  <div className="leading-relaxed">
-                    <div className="font-medium">AIに指示</div>
-                    <ul className="mt-1 ml-6 list-disc text-sm text-gray-600">
-                      <li>「1枚目の服を2枚目の服に置き換えてください」</li>
-                      <li>「1枚目の人物に2枚目のネックレスを追加してください」</li>
-                    </ul>
-                  </div>
-                </li>
-              </ol>
-            </div>
-          </div>
-        )}
-
-        {/* ローディング */}
-        {isGenerating && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/70">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400 mb-4" />
-              <p className="text-gray-700">Creating your image...</p>
-            </div>
-          </div>
-        )}
-
-        {/* Konva Stage（fitScale で常にコンテナ内に収める） */}
-        <Stage
-          ref={stageRef}
-          width={stageSize.width}
-          height={stageSize.height}
-          scaleX={fitScale}
-          scaleY={fitScale}
-          x={0}
-          y={0}
-          draggable={false} // パン不可（常にフィット）
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          style={{ cursor: selectedTool === 'mask' ? 'crosshair' : 'default' }}
-        >
-          <Layer>
-            {image && <KonvaImage image={image} x={imageOffset.x} y={imageOffset.y} />}
-
-            {/* 既存マスク（表示切替可能） */}
-            {showMasks &&
-              Array.isArray(brushStrokes) &&
-              brushStrokes.map((stroke) => (
-                <Line
-                  key={stroke.id}
-                  points={Array.isArray(stroke.points) ? stroke.points : []}
-                  stroke="#A855F7"
-                  strokeWidth={stroke.brushSize ?? 10}
-                  tension={0.5}
-                  lineCap="round"
-                  lineJoin="round"
-                  globalCompositeOperation="source-over"
-                  opacity={0.6}
-                  x={imageOffset.x}
-                  y={imageOffset.y}
-                />
-              ))}
-
-            {/* 描画中ストローク */}
-            {isDrawing && currentStroke.length > 2 && (
-              <Line
-                points={currentStroke}
-                stroke="#A855F7"
-                strokeWidth={brushSize ?? 10}
-                tension={0.5}
-                lineCap="round"
-                lineJoin="round"
-                globalCompositeOperation="source-over"
-                opacity={0.6}
-                x={imageOffset.x}
-                y={imageOffset.y}
-              />
-            )}
-          </Layer>
-        </Stage>
-      </div>
-
-      {/* フッターバー */}
-      <div className="p-3 border-t border-gray-200 bg-white">
-        <div className="flex items-center justify-between text-xs text-gray-600">
-          <div className="flex items-center space-x-4">
-            {Array.isArray(brushStrokes) && brushStrokes.length > 0 && (
-              <span className="text-yellow-600">
-                {brushStrokes.length} brush stroke{brushStrokes.length !== 1 ? 's' : ''}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center space-x-2">
-            <span className="text-xs text-gray-500">
-              © 2025 EVERYSAN —
-              <a
-                href="https://note.com/everysan"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-yellow-600 hover:text-yellow-500 transition-colors ml-1"
-              >
-                Reinventing.AI Solutions
-              </a>
-            </span>
-            <span className="text-gray-600 hidden md:inline">•</span>
-            <span className="text-yellow-600 hidden md:inline">⚡</span>
-            <span className="hidden md:inline">Powered by Gemini 2.5 Flash Image</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+export type EditItem = {
+  id: string;
+  instruction: string;
+  parentGenerationId: string | null;
+  maskReferenceAsset: string | null;
+  outputAssets: EditAsset[];
+  timestamp: number;
 };
+
+export type Project = {
+  id: string;
+  edits: EditItem[];
+  generations?: any[];
+};
+
+type AppState = {
+  /* Prompt / params */
+  currentPrompt: string;
+  setCurrentPrompt: (v: string) => void;
+
+  temperature: number;
+  setTemperature: (v: number) => void;
+
+  seed: number | null;
+  setSeed: (v: number | null) => void;
+
+  /* Side panel / UI */
+  showPromptPanel: boolean;
+  setShowPromptPanel: (v: boolean) => void;
+
+  showHistory: boolean;
+  setShowHistory: (v: boolean) => void;
+
+  /* Canvas */
+  canvasImage: string | null;
+  setCanvasImage: (url?: string | null) => void;
+
+  /* Mask/brush (将来のために持っておく。今はクリアのみ使用) */
+  brushStrokes: any[];
+  clearBrushStrokes: () => void;
+
+  /* Edit references (左パネルのRef画像) */
+  editReferenceImages: string[];
+  addEditReferenceImage: (url: string) => void;
+  removeEditReferenceImage: (index: number) => void;
+  clearEditReferenceImages: () => void;
+
+  /* Project / History */
+  currentProject?: Project;
+  ensureProject: () => void;
+  addEdit: (edit: EditItem) => void;
+
+  /* Selection */
+  selectedEditId: string | null;
+  selectEdit: (id: string | null) => void;
+
+  selectedGenerationId: string | null;
+  selectGeneration: (id: string | null) => void;
+};
+
+/* =========
+ * Store
+ * ========= */
+export const useAppStore = create<AppState>()(
+  devtools((set, get) => ({
+    /* Prompt / params */
+    currentPrompt: '',
+    setCurrentPrompt: (v) => set({ currentPrompt: v }),
+
+    temperature: 0.7,
+    setTemperature: (v) => set({ temperature: v }),
+
+    seed: null,
+    setSeed: (v) => set({ seed: v }),
+
+    /* Side panel / UI */
+    showPromptPanel: true,
+    setShowPromptPanel: (v) => set({ showPromptPanel: v }),
+
+    showHistory: true,
+    setShowHistory: (v) => set({ showHistory: v }),
+
+    /* Canvas */
+    canvasImage: null,
+    setCanvasImage: (url) => set({ canvasImage: url ?? null }),
+
+    /* Mask/brush */
+    brushStrokes: [],
+    clearBrushStrokes: () => set({ brushStrokes: [] }),
+
+    /* Edit references */
+    editReferenceImages: [],
+    addEditReferenceImage: (url) =>
+      set((s) => {
+        if (s.editReferenceImages.includes(url)) return s;
+        // Max 2 refs
+        const next = s.editReferenceImages.length >= 2
+          ? [s.editReferenceImages[0], url]
+          : [...s.editReferenceImages, url];
+        return { editReferenceImages: next };
+      }),
+    removeEditReferenceImage: (index) =>
+      set((s) => {
+        const next = s.editReferenceImages.slice();
+        next.splice(index, 1);
+        return { editReferenceImages: next };
+      }),
+    clearEditReferenceImages: () => set({ editReferenceImages: [] }),
+
+    /* Project / History */
+    currentProject: undefined,
+    ensureProject: () => {
+      set((s) => {
+        if (s.currentProject) return s;
+        return {
+          currentProject: {
+            id: 'local-project',
+            edits: [],
+            generations: [],
+          } as Project,
+        };
+      });
+    },
+
+    addEdit: (edit) => {
+      set((s) => {
+        const proj: Project =
+          s.currentProject ?? { id: 'local-project', edits: [], generations: [] };
+
+        const exists = proj.edits.some((e) => e.id === edit.id);
+        const nextEdits = exists
+          ? proj.edits.map((e) => (e.id === edit.id ? edit : e))
+          : [...proj.edits, edit];
+
+        // 直近100件までに丸める（必要に応じて調整）
+        const limited = nextEdits.slice(-100);
+        return { currentProject: { ...proj, edits: limited } };
+      });
+
+      const len = get().currentProject?.edits.length ?? 0;
+      console.log(`[DRESSUP][store] edits length = ${len}`);
+    },
+
+    /* Selection */
+    selectedEditId: null,
+    selectEdit: (id) => set({ selectedEditId: id }),
+
+    selectedGenerationId: null,
+    selectGeneration: (id) => set({ selectedGenerationId: id }),
+  }))
+);
