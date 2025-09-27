@@ -1,37 +1,7 @@
-// src/store/useAppStore.ts
 import { create } from 'zustand';
-import { v4 as uuidv4 } from 'uuid';
+import { persist } from 'zustand/middleware';
 
-type Asset = { id: string; url: string };
-type GenParams = { seed?: number | null; temperature?: number | null };
-
-// ---- 追記: 型（ファイル先頭の import 群の下など）------------------
-export type OutputAsset = { id: string; url: string };
-
-export type GenerationItem = {
-  id: string;
-  prompt: string;
-  modelVersion: string;
-  parameters?: { seed?: number | null };
-  sourceAssets: OutputAsset[];
-  outputAssets: OutputAsset[];
-  timestamp: number;
-};
-
-export type EditItem = {
-  id: string;
-  instruction: string;
-  parentGenerationId?: string | null;
-  maskReferenceAsset?: OutputAsset | null;
-  outputAssets: OutputAsset[];
-  timestamp: number;
-};
-
-export type ProjectState = {
-  id: string;
-  generations: GenerationItem[];
-  edits: EditItem[];
-};// ---- 追記: 型（ファイル先頭の import 群の下など）------------------
+// ===== 履歴の型 =====
 export type OutputAsset = { id: string; url: string };
 
 export type GenerationItem = {
@@ -59,165 +29,179 @@ export type ProjectState = {
   edits: EditItem[];
 };
 
-export type Generation = {
+// ===== マスク（今は非活性だが型は保持） =====
+export type BrushStroke = {
   id: string;
-  prompt: string;
-  modelVersion: string;
-  timestamp: number;
-  sourceAssets: Asset[];   // 参照画像
-  outputAssets: Asset[];   // 生成結果（1枚想定）
-  parameters: GenParams;
+  points: number[];     // [x1,y1,x2,y2,...]
+  brushSize: number;
 };
 
-export type EditEntry = {
-  id: string;
-  instruction: string;
-  timestamp: number;
-  parentGenerationId?: string | null;
-  outputAssets: Asset[];
-  maskAssetId?: string | null;
-  maskReferenceAsset?: Asset | null;
-};
+type CanvasPan = { x: number; y: number };
 
-type Project = {
-  id: string;
-  generations: Generation[];
-  edits: EditEntry[];
-};
-
-type State = {
-  // 左パネル
+// ===== ストア =====
+type AppState = {
+  // Prompt / モード
   currentPrompt: string;
-  selectedTool: 'generate' | 'edit';
-  temperature: number;
-  seed: number | null;
-
-  uploadedImages: string[];       // generate 用参照
-  editReferenceImages: string[];  // edit 用参照
-  canvasImage: string | null;     // 中央の最新1枚
-
-  // パネル表示状態
-  showPromptPanel: boolean;
-  showHistory: boolean;
-
-  // History / Session
-  sessionId: string;
-  currentProject: Project | null;
-  selectedGenerationId: string | null;
-  selectedEditId: string | null;
-
-  // setters / actions
   setCurrentPrompt: (v: string) => void;
-  setSelectedTool: (t: State['selectedTool']) => void;
-  setTemperature: (t: number) => void;
-  setSeed: (s: number | null) => void;
 
-  addUploadedImage: (d: string) => void;
-  removeUploadedImage: (i: number) => void;
+  selectedTool: 'generate' | 'edit';
+  setSelectedTool: (v: 'generate' | 'edit') => void;
+
+  temperature: number;
+  setTemperature: (v: number) => void;
+
+  seed: number | null;
+  setSeed: (v: number | null) => void;
+
+  // 生成用アップロード
+  uploadedImages: string[];
+  addUploadedImage: (dataUrl: string) => void;
+  removeUploadedImage: (index: number) => void;
   clearUploadedImages: () => void;
 
-  addEditReferenceImage: (d: string) => void;
-  removeEditReferenceImage: (i: number) => void;
+  // 編集用アップロード（BASE は PromptComposer 側で管理）
+  editReferenceImages: string[];
+  addEditReferenceImage: (dataUrl: string) => void;
+  removeEditReferenceImage: (index: number) => void;
   clearEditReferenceImages: () => void;
 
-  setCanvasImage: (d: string | null) => void;
+  // キャンバス表示
+  canvasImage: string | null;
+  setCanvasImage: (url: string | null) => void;
 
-  setShowPromptPanel: (b: boolean) => void;
-  setShowHistory: (b: boolean) => void;
+  // キャンバス操作（ズーム/パン/マスク）
+  canvasZoom: number;
+  setCanvasZoom: (z: number) => void;
+  canvasPan: CanvasPan;
+  setCanvasPan: (p: CanvasPan) => void;
 
-  clearBrushStrokes: () => void; // そのまま残し
+  showMasks: boolean;
+  setShowMasks: (v: boolean) => void;
 
-  // History:
+  brushStrokes: BrushStroke[];
+  addBrushStroke: (s: BrushStroke) => void;
+  clearBrushStrokes: () => void;
+
+  // パネル表示
+  showPromptPanel: boolean;
+  setShowPromptPanel: (v: boolean) => void;
+
+  // ===== 履歴管理 =====
+  currentProject: ProjectState | null;
   ensureProject: () => void;
-  addGeneration: (g: Omit<Generation, 'id'|'timestamp'>) => Generation;
-  addEdit: (e: Omit<EditEntry, 'id'|'timestamp'>) => EditEntry;
+
+  addGeneration: (g: GenerationItem) => void;
+  addEdit: (e: EditItem) => void;
+
+  selectedGenerationId: string | null;
+  selectedEditId: string | null;
   selectGeneration: (id: string | null) => void;
   selectEdit: (id: string | null) => void;
-  clearHistory: () => void;
+
+  showHistory: boolean;
+  setShowHistory: (v: boolean) => void;
 };
 
-export const useAppStore = create<State>((set, get) => ({
-  currentPrompt: '',
-  selectedTool: 'generate',
-  temperature: 0.7,
-  seed: null,
+export const useAppStore = create<AppState>()(
+  persist(
+    (set, get) => ({
+      // ---- 初期値 ----
+      currentPrompt: '',
+      setCurrentPrompt: (v) => set({ currentPrompt: v }),
 
-  uploadedImages: [],
-  editReferenceImages: [],
-  canvasImage: null,
+      selectedTool: 'edit',
+      setSelectedTool: (v) => set({ selectedTool: v }),
 
-  showPromptPanel: true,
-  showHistory: true,
+      temperature: 0.7,
+      setTemperature: (v) => set({ temperature: v }),
 
-  sessionId: uuidv4(),
-  currentProject: { id: uuidv4(), generations: [], edits: [] },
-  selectedGenerationId: null,
-  selectedEditId: null,
+      seed: null,
+      setSeed: (v) => set({ seed: v }),
 
-  setCurrentPrompt: (v) => set({ currentPrompt: v }),
-  setSelectedTool: (t) => set({ selectedTool: t }),
-  setTemperature: (t) => set({ temperature: t }),
-  setSeed: (s) => set({ seed: s }),
+      uploadedImages: [],
+      addUploadedImage: (u) => set((s) => ({ uploadedImages: [...s.uploadedImages, u] })),
+      removeUploadedImage: (idx) =>
+        set((s) => ({ uploadedImages: s.uploadedImages.filter((_, i) => i !== idx) })),
+      clearUploadedImages: () => set({ uploadedImages: [] }),
 
-  addUploadedImage: (d) => set((s) => ({ uploadedImages: [...s.uploadedImages, d].slice(0, 2) })),
-  removeUploadedImage: (i) => set((s) => ({ uploadedImages: s.uploadedImages.filter((_, idx) => idx !== i) })),
-  clearUploadedImages: () => set({ uploadedImages: [] }),
+      editReferenceImages: [],
+      addEditReferenceImage: (u) => set((s) => ({ editReferenceImages: [...s.editReferenceImages, u] })),
+      removeEditReferenceImage: (idx) =>
+        set((s) => ({ editReferenceImages: s.editReferenceImages.filter((_, i) => i !== idx) })),
+      clearEditReferenceImages: () => set({ editReferenceImages: [] }),
 
-  addEditReferenceImage: (d) => set((s) => ({ editReferenceImages: [...s.editReferenceImages, d].slice(0, 2) })),
-  removeEditReferenceImage: (i) => set((s) => ({ editReferenceImages: s.editReferenceImages.filter((_, idx) => idx !== i) })),
-  clearEditReferenceImages: () => set({ editReferenceImages: [] }),
+      canvasImage: null,
+      setCanvasImage: (url) => set({ canvasImage: url }),
 
-  setCanvasImage: (d) => set({ canvasImage: d }),
+      canvasZoom: 1,
+      setCanvasZoom: (z) => set({ canvasZoom: z }),
+      canvasPan: { x: 0, y: 0 },
+      setCanvasPan: (p) => set({ canvasPan: p }),
 
-  setShowPromptPanel: (b) => set({ showPromptPanel: b }),
-  setShowHistory: (b) => set({ showHistory: b }),
+      showMasks: false,
+      setShowMasks: (v) => set({ showMasks: v }),
 
-  clearBrushStrokes: () => {},
+      brushStrokes: [],
+      addBrushStroke: (s) => set((st) => ({ brushStrokes: [...st.brushStrokes, s] })),
+      clearBrushStrokes: () => set({ brushStrokes: [] }),
 
-  ensureProject: () => {
-    if (!get().currentProject) set({ currentProject: { id: uuidv4(), generations: [], edits: [] } });
-  },
+      showPromptPanel: true,
+      setShowPromptPanel: (v) => set({ showPromptPanel: v }),
 
-  addGeneration: (g) => {
-    const gen: Generation = {
-      id: uuidv4(),
-      timestamp: Date.now(),
-      ...g,
-    };
-    set((s) => {
-      const p = s.currentProject ?? { id: uuidv4(), generations: [], edits: [] };
-      return {
-        currentProject: { ...p, generations: [...p.generations, gen] },
-        selectedGenerationId: gen.id,
-        selectedEditId: null,
-      };
-    });
-    return gen;
-  },
+      // ===== 履歴 =====
+      currentProject: null,
+      ensureProject: () => {
+        const s = get();
+        if (!s.currentProject) {
+          set({
+            currentProject: { id: `proj-${Date.now()}`, generations: [], edits: [] },
+          });
+        }
+      },
 
-  addEdit: (e) => {
-    const ed: EditEntry = {
-      id: uuidv4(),
-      timestamp: Date.now(),
-      ...e,
-    };
-    set((s) => {
-      const p = s.currentProject ?? { id: uuidv4(), generations: [], edits: [] };
-      return {
-        currentProject: { ...p, edits: [...p.edits, ed] },
-        selectedEditId: ed.id,
-        selectedGenerationId: null,
-      };
-    });
-    return ed;
-  },
+      addGeneration: (g) => {
+        const s = get();
+        if (!s.currentProject) {
+          s.ensureProject();
+        }
+        set((st) => ({
+          currentProject: st.currentProject
+            ? { ...st.currentProject, generations: [g, ...st.currentProject.generations] }
+            : { id: `proj-${Date.now()}`, generations: [g], edits: [] },
+        }));
+      },
 
-  selectGeneration: (id) => set({ selectedGenerationId: id, selectedEditId: null }),
-  selectEdit: (id) => set({ selectedEditId: id, selectedGenerationId: null }),
+      addEdit: (e) => {
+        const s = get();
+        if (!s.currentProject) {
+          s.ensureProject();
+        }
+        set((st) => ({
+          currentProject: st.currentProject
+            ? { ...st.currentProject, edits: [e, ...st.currentProject.edits] }
+            : { id: `proj-${Date.now()}`, generations: [], edits: [e] },
+        }));
+      },
 
-  clearHistory: () => set((s) => ({
-    currentProject: s.currentProject ? { ...s.currentProject, generations: [], edits: [] } : s.currentProject,
-    selectedEditId: null,
-    selectedGenerationId: null,
-  })),
-}));
+      selectedGenerationId: null,
+      selectedEditId: null,
+      selectGeneration: (id) => set({ selectedGenerationId: id, selectedEditId: null }),
+      selectEdit: (id) => set({ selectedEditId: id, selectedGenerationId: null }),
+
+      showHistory: true,
+      setShowHistory: (v) => set({ showHistory: v }),
+    }),
+    {
+      name: 'dressup-app-store', // LocalStorage key
+      partialize: (state) => ({
+        // 永続化したいものだけ
+        temperature: state.temperature,
+        seed: state.seed,
+        uploadedImages: state.uploadedImages,
+        editReferenceImages: state.editReferenceImages,
+        currentProject: state.currentProject,
+        showHistory: state.showHistory,
+      }),
+    }
+  )
+);
