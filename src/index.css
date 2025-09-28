@@ -6,17 +6,17 @@
 * { box-sizing: border-box; }
 
 html, body, #root {
-  height: 100%;       /* ← h-screen を正しく効かせるために必須 */
+  height: 100%;       /* h-screen を正しく効かせるために必須 */
 }
 
 /* 縦スクロールは許可し、横だけ抑制 */
 body {
   font-family: 'Inter', sans-serif;
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
-  overflow-x: hidden;  /* ← 以前の overflow: hidden を修正 */
+  overflow-x: hidden;
 }
 
-/* Custom scrollbar for dark theme */
+/* Custom scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: #f8fafc; }
 ::-webkit-scrollbar-thumb {
@@ -26,7 +26,7 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
-/* Custom range slider styling */
+/* Custom range slider */
 .slider::-webkit-slider-thumb {
   appearance: none;
   height: 16px; width: 16px; border-radius: 50%;
@@ -37,14 +37,14 @@ body {
   background: #FDE047; cursor: pointer; border: 2px solid #1F2937;
 }
 
-/* Marching ants animation */
+/* Marching ants */
 @keyframes marching-ants {
   0% { stroke-dashoffset: 0; }
   100% { stroke-dashoffset: 10; }
 }
 .marching-ants { stroke-dasharray: 5 5; animation: marching-ants 0.5s linear infinite; }
 
-/* Focus styles for accessibility */
+/* Focus */
 *:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
 
 /* Smooth transitions */
@@ -65,18 +65,8 @@ body {
   background: #ffffff;
   box-shadow: 0 10px 40px rgba(0,0,0,.18);
 }
-
-.mobile-overlay--right {
-  left: auto;
-  width: min(92vw, 420px);
-  right: 0;
-}
-
-.mobile-overlay--left {
-  right: auto;
-  width: min(92vw, 420px);
-  left: 0;
-}
+.mobile-overlay--right { left: auto; width: min(92vw, 420px); right: 0; }
+.mobile-overlay--left  { right: auto; width: min(92vw, 420px); left: 0; }
 
 .mobile-backdrop {
   position: fixed;
@@ -85,7 +75,7 @@ body {
   z-index: 30;
 }
 
-/* モバイル上部の小型ツールバー（残す場合に使用） */
+/* （上部ツールバーを残す場合） */
 .mobile-toolbar {
   position: sticky;
   top: 0;
@@ -100,15 +90,16 @@ body {
   border-bottom: 1px solid #e5e7eb;
 }
 
-/* ==== Mobile bottom tabbar ==== */
+/* ===== Bottom Tabbar（固定） ===== */
+:root { --tabbar-h: 64px; }
+
 .mobile-tabbar{
-  position: sticky;
-  bottom: 0;
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
   z-index: 50;
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 6px;
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;
   padding: 8px 10px calc(env(safe-area-inset-bottom, 0px) + 8px);
+  height: var(--tabbar-h);
   background: #ffffffcc;
   backdrop-filter: blur(6px);
   border-top: 1px solid #e5e7eb;
@@ -118,10 +109,13 @@ body {
   padding:10px 8px; border-radius:10px; font-size:14px; font-weight:600;
   color:#1f2937; background:#f3f4f6;
 }
-.mobile-tabbar__btn--active{
-  color:#ffffff; background:#10b981;
-}
+.mobile-tabbar__btn--active{ color:#ffffff; background:#10b981; }
 .mobile-tabbar__btn span{ display:inline }
 @media (max-width: 360px){
   .mobile-tabbar__btn span{ display:none } /* 超小型端末はアイコンのみ */
+}
+
+/* タブ分の下余白（本文側に付与して重なり回避） */
+.with-tabbar-pad{
+  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 12px);
 }
