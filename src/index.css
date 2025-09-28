@@ -68,4 +68,60 @@ body {
 
 .mobile-overlay--right {
   left: auto;
-  width
+  width: min(92vw, 420px);
+  right: 0;
+}
+
+.mobile-overlay--left {
+  right: auto;
+  width: min(92vw, 420px);
+  left: 0;
+}
+
+.mobile-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  z-index: 30;
+}
+
+/* モバイル上部の小型ツールバー（残す場合に使用） */
+.mobile-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #ffffffcc;
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid #e5e7eb;
+}
+
+/* ==== Mobile bottom tabbar ==== */
+.mobile-tabbar{
+  position: sticky;
+  bottom: 0;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  padding: 8px 10px calc(env(safe-area-inset-bottom, 0px) + 8px);
+  background: #ffffffcc;
+  backdrop-filter: blur(6px);
+  border-top: 1px solid #e5e7eb;
+}
+.mobile-tabbar__btn{
+  display:flex; align-items:center; justify-content:center; gap:6px;
+  padding:10px 8px; border-radius:10px; font-size:14px; font-weight:600;
+  color:#1f2937; background:#f3f4f6;
+}
+.mobile-tabbar__btn--active{
+  color:#ffffff; background:#10b981;
+}
+.mobile-tabbar__btn span{ display:inline }
+@media (max-width: 360px){
+  .mobile-tabbar__btn span{ display:none } /* 超小型端末はアイコンのみ */
+}
