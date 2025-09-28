@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button } from './ui/Button';
 import { HelpCircle } from 'lucide-react';
 import { InfoModal } from './InfoModal';
-import { buy, openPortal } from '@/lib/billing';
+import { buy, openPortal } from '../lib/billing';
 
 export const Header: React.FC = () => {
   const [showInfoModal, setShowInfoModal] = useState(false);
