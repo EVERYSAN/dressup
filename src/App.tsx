@@ -9,9 +9,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAppStore } from './store/useAppStore';
 
 const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { staleTime: 5 * 60 * 1000, retry: 2 },
-  },
+  defaultOptions: { queries: { staleTime: 5 * 60 * 1000, retry: 2 } },
 });
 
 function AppContent() {
@@ -54,9 +52,8 @@ function AppContent() {
     <div className="h-screen bg-white text-gray-900 flex flex-col font-sans">
       <Header />
 
-      {/* コンテンツ */}
-      <div className="flex-1 flex min-h-0 relative">
-
+      {/* コンテンツ（モバイルはタブ分の下余白を追加） */}
+      <div className={cn("flex-1 flex min-h-0 relative", isMobile && "with-tabbar-pad")}>
         {/* 左パネル（編集） */}
         {isMobile ? (
           <>
@@ -80,7 +77,7 @@ function AppContent() {
           </div>
         )}
 
-        {/* キャンバス（ホーム） */}
+        {/* 中央（生成結果 = キャンバス） */}
         <div className="flex-1 min-w-0">
           <ImageCanvas />
         </div>
@@ -106,18 +103,15 @@ function AppContent() {
         )}
       </div>
 
-      {/* モバイル：下部タブ（ホーム / 編集 / 履歴） */}
+      {/* モバイル：下部タブ（生成結果 / 編集 / 履歴） */}
       {isMobile && (
         <nav className="mobile-tabbar md:hidden">
           <button
-            className={cn(
-              "mobile-tabbar__btn",
-              !showPromptPanel && !showHistory && "mobile-tabbar__btn--active"
-            )}
+            className={cn("mobile-tabbar__btn", !showPromptPanel && !showHistory && "mobile-tabbar__btn--active")}
             onClick={() => { setShowPromptPanel(false); setShowHistory(false); }}
-            aria-label="ホーム"
+            aria-label="生成結果"
           >
-            🖼️ <span>ホーム</span>
+            🖼️ <span>生成結果</span>
           </button>
           <button
             className={cn("mobile-tabbar__btn", showPromptPanel && "mobile-tabbar__btn--active")}
@@ -136,8 +130,8 @@ function AppContent() {
         </nav>
       )}
 
-      {/* フッター（そのまま） */}
-      <footer className="border-t border-gray-200 bg-white text-xs text-gray-500 px-4 py-3">
+      {/* PCのみフッター表示（モバイルはタブと重なるので非表示） */}
+      <footer className={cn("border-t border-gray-200 bg-white text-xs text-gray-500 px-4 py-3", isMobile && "hidden")}>
         <div>© 2025 EVERYSAN — Modified from NanoBananaEditor (AGPLv3)</div>
         <div className="mt-1">
           <a className="underline" href="https://github.com/EVERYSAN/dressup" target="_blank" rel="noreferrer">Source</a>
