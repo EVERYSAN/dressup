@@ -153,8 +153,9 @@ export const PromptComposer: React.FC = () => {
 
   return (
     <>
-      <div className="w-80 lg:w-72 xl:w-80 h-full bg-emerald-50 border-r border-emerald-100 p-6 flex flex-col space-y-6 overflow-y-auto shadow-sm">
-        {/* ==== Header（強化） ==== */}
+      {/* ← モバイル時は p-4/space-4、PCは元の p-6/space-6 */}
+      <div className="w-[92vw] md:w-72 xl:w-80 h-full bg-emerald-50 border-r border-emerald-100 p-4 md:p-6 flex flex-col space-y-4 md:space-y-6 overflow-y-auto shadow-sm">
+        {/* ==== Header ==== */}
         <div className="mb-2">
           <div className="flex items-center justify-between">
             <div className="inline-flex items-center gap-2 rounded-md bg-emerald-600/10 text-emerald-800 px-2.5 py-1.5">
@@ -191,7 +192,6 @@ export const PromptComposer: React.FC = () => {
         <div>
           <label className="text-sm font-medium text-gray-800 mb-2 block">参照画像</label>
 
-          {/* Upload（英語のまま） */}
           <div className="rounded-lg bg-white border border-emerald-200 p-2 shadow-sm">
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
             <Button
@@ -212,7 +212,7 @@ export const PromptComposer: React.FC = () => {
                 <img
                   src={baseImage}
                   alt="ベース画像"
-                  className="aspect-square w-full max-h-[260px] object-cover rounded-lg border border-emerald-200 shadow-sm bg-white"
+                  className="aspect-square w-full max-h-[220px] md:max-h-[260px] object-cover rounded-lg border border-emerald-200 shadow-sm bg-white"
                 />
                 <button
                   onClick={() => {
@@ -240,7 +240,7 @@ export const PromptComposer: React.FC = () => {
                   <img
                     src={image}
                     alt={`参照 ${index + 1}`}
-                    className="aspect-square w-full max-h-[220px] object-cover rounded-lg border border-emerald-200 shadow-sm bg-white"
+                    className="aspect-square w-full max-h-[200px] md:max-h-[220px] object-cover rounded-lg border border-emerald-200 shadow-sm bg-white"
                   />
                   <button
                     onClick={() => removeEditReferenceImage(index)}
@@ -296,12 +296,12 @@ export const PromptComposer: React.FC = () => {
         <Button
           onClick={handleApplyEdit}
           disabled={!canEdit}
-          className="group w-full h-14 text-base font-semibold tracking-wide
+          className="group w-full h-12 md:h-14 text-sm md:text-base font-semibold tracking-wide
                      text-white bg-emerald-600 hover:bg-emerald-700
                      disabled:bg-white disabled:text-emerald-800
                      disabled:border disabled:border-emerald-400
                      disabled:shadow-none disabled:hover:bg-white disabled:hover:text-emerald-800
-                     disabled:cursor-not-allowed"
+                     disabled:cursor-not-allowed sticky bottom-2"
           title="画像を編集"
         >
           {isEditPending ? (
