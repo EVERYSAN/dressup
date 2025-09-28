@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Button } from './ui/Button';
 import { HelpCircle } from 'lucide-react';
 import { InfoModal } from './InfoModal';
+import { buy, openPortal } from '@/lib/billing';
 
 export const Header: React.FC = () => {
   const [showInfoModal, setShowInfoModal] = useState(false);
@@ -38,3 +39,12 @@ export const Header: React.FC = () => {
     </>
   );
 };
+export function BillingButtons() {
+  return (
+    <div className="flex gap-2">
+      <button onClick={()=>buy('basic')} className="btn">Basicを購入</button>
+      <button onClick={()=>buy('pro')} className="btn">Proを購入</button>
+      <button onClick={openPortal} className="btn-outline">支払い設定</button>
+    </div>
+  );
+}
