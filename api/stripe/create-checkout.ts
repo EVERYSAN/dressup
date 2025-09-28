@@ -41,8 +41,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     mode: 'subscription',
     customer: customerId,
     line_items: [{ price, quantity: 1 }],
-    success_url: `${process.env.NEXT_PUBLICK_APP_URL ?? process.env.PUBLIC_APP_URL ?? 'https://'+req.headers.host}/?success=1`,
-    cancel_url: `${process.env.NEXT_PUBLICK_APP_URL ?? process.env.PUBLIC_APP_URL ?? 'https://'+req.headers.host}/?canceled=1`,
+    success_url: `${process.env.NEXT_PUBLIC_APP_URL ?? process.env.PUBLIC_APP_URL ?? 'https://'+req.headers.host}/?success=1`,
+    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL ?? process.env.PUBLIC_APP_URL ?? 'https://'+req.headers.host}/?canceled=1`,
     allow_promotion_codes: true,
     metadata: { user_id: user.id, plan }
   });
