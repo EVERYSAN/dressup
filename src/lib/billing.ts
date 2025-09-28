@@ -5,7 +5,7 @@ async function token() {
   return session?.access_token || '';
 }
 
-export async function buy(plan:'basic'|'pro') {
+export async function buy(plan:'light'|'basic'|'pro') {
   const r = await fetch('/api/stripe/create-checkout', {
     method:'POST',
     headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${await token()}` },
