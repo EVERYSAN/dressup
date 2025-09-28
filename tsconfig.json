@@ -1,8 +1,18 @@
 {
-  "files": [],
-  "references": [
-    { "path": "./tsconfig.app.json" },
-    { "path": "./tsconfig.node.json" },
-    { "path": "./tsconfig.api.json" } 
-  ]
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",         // ← これで拡張子なし import が許容される
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "useDefineForClassFields": true,
+    "types": ["node"],                      // /api で Node 型が欲しい
+    "baseUrl": ".",
+    "paths": { "@/*": ["src/*"] }          // 使っていればそのまま
+  },
+  "include": ["src", "api", "vite-env.d.ts"],
+  "exclude": ["node_modules", "dist"]
 }
