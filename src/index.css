@@ -3,119 +3,98 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ====== 基本 ====== */
 * { box-sizing: border-box; }
-
-html, body, #root {
-  height: 100%;       /* h-screen を正しく効かせるために必須 */
-}
-
-/* 縦スクロールは許可し、横だけ抑制 */
+html, body, #root { height: 100%; }
 body {
+  margin: 0;
   font-family: 'Inter', sans-serif;
-  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
-  overflow-x: hidden;
+  font-feature-settings: 'cv02','cv03','cv04','cv11';
+  overflow-x: hidden;                 /* 横スクロール抑止 */
+  overscroll-behavior-y: none;        /* iOSの引っ張りスクロールでのズレ対策 */
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #f8fafc; }
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 8px;
-  border: 2px solid #f8fafc;
-}
-::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
-/* Custom range slider */
-.slider::-webkit-slider-thumb {
-  appearance: none;
-  height: 16px; width: 16px; border-radius: 50%;
-  background: #FDE047; cursor: pointer; border: 2px solid #1F2937;
-}
-.slider::-moz-range-thumb {
-  height: 16px; width: 16px; border-radius: 50%;
-  background: #FDE047; cursor: pointer; border: 2px solid #1F2937;
+/* ====== 端末依存の高さ対策（100vh 問題） ======
+  JS で --vh を更新。 .app-viewport に 100 * --vh を適用 */
+.app-viewport {
+  height: calc(var(--vh, 1vh) * 100);
 }
 
-/* Marching ants */
-@keyframes marching-ants {
-  0% { stroke-dashoffset: 0; }
-  100% { stroke-dashoffset: 10; }
+/* ====== 共有カスタムプロパティ ====== */
+:root{
+  --header-h: 64px; /* Header.tsx: h-16 に合わせる */
+  --tabbar-h: 64px; /* 指タップしやすい高さ */
 }
-.marching-ants { stroke-dasharray: 5 5; animation: marching-ants 0.5s linear infinite; }
 
-/* Focus */
-*:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
+/* ====== スクロールバー・スライダー等（任意） ====== */
+::-webkit-scrollbar{ width:6px; height:6px; }
+::-webkit-scrollbar-track{ background:#f8fafc; }
+::-webkit-scrollbar-thumb{ background:#cbd5e1; border-radius:8px; border:2px solid #f8fafc; }
+::-webkit-scrollbar-thumb:hover{ background:#94a3b8; }
 
-/* Smooth transitions */
-* {
-  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
+.slider::-webkit-slider-thumb{
+  appearance:none; height:16px; width:16px; border-radius:50%;
+  background:#FDE047; cursor:pointer; border:2px solid #1F2937;
+}
+.slider::-moz-range-thumb{
+  height:16px; width:16px; border-radius:50%;
+  background:#FDE047; cursor:pointer; border:2px solid #1F2937;
+}
+
+@keyframes marching-ants{ 0%{stroke-dashoffset:0} 100%{stroke-dashoffset:10} }
+.marching-ants{ stroke-dasharray:5 5; animation:marching-ants .5s linear infinite; }
+
+*:focus-visible{ outline:2px solid #3b82f6; outline-offset:2px; }
+*{
+  transition-property: color, background-color, border-color, text-decoration-color,
+    fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
   transition-duration: 200ms;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-timing-function: cubic-bezier(.4,0,.2,1);
 }
 
-/* ==== Mobile overlay helpers ==== */
-.mobile-overlay {
+/* ====== モバイル用オーバーレイ（左右ドロワー） ======
+   ヘッダーの高さ + 安全領域を考慮して上端を決定 */
+.mobile-overlay{
   position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) + 56px); /* 上部ツールバー分 */
-  left: 0;
-  right: 0;
-  bottom: 0;
+  top: calc(env(safe-area-inset-top, 0px) + var(--header-h));
+  left: 0; right: 0; bottom: 0;
   z-index: 40;
-  background: #ffffff;
+  background: #fff;
   box-shadow: 0 10px 40px rgba(0,0,0,.18);
 }
-.mobile-overlay--right { left: auto; width: min(92vw, 420px); right: 0; }
-.mobile-overlay--left  { right: auto; width: min(92vw, 420px); left: 0; }
+.mobile-overlay--right{ left:auto; width:min(92vw, 420px); right:0; }
+.mobile-overlay--left { right:auto; width:min(92vw, 420px); left:0; }
 
-.mobile-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.35);
-  z-index: 30;
+.mobile-backdrop{
+  position: fixed; inset: 0; background: rgba(15,23,42,.35); z-index: 30;
 }
 
-/* （上部ツールバーを残す場合） */
-.mobile-toolbar {
-  position: sticky;
-  top: 0;
-  z-index: 25;
-  height: 56px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: #ffffffcc;
-  backdrop-filter: blur(6px);
-  border-bottom: 1px solid #e5e7eb;
+/* （上部ツールバーを使う場合のスタイル） */
+.mobile-toolbar{
+  position: sticky; top: 0; z-index: 25; height: 56px;
+  display:flex; align-items:center; gap:8px; padding:8px 12px;
+  background:#ffffffcc; backdrop-filter: blur(6px); border-bottom:1px solid #e5e7eb;
 }
 
-/* ===== Bottom Tabbar（固定） ===== */
-:root { --tabbar-h: 64px; }
-
+/* ====== 下部タブ（常に最下部に固定） ====== */
 .mobile-tabbar{
-  position: fixed;
-  left: 0; right: 0; bottom: 0;
-  z-index: 50;
-  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;
-  padding: 8px 10px calc(env(safe-area-inset-bottom, 0px) + 8px);
-  height: var(--tabbar-h);
-  background: #ffffffcc;
-  backdrop-filter: blur(6px);
-  border-top: 1px solid #e5e7eb;
+  position: fixed; left:0; right:0; bottom:0; z-index:50;
+  display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px;
+  min-height: var(--tabbar-h);
+  padding: 8px 10px calc(env(safe-area-inset-bottom,0px) + 8px);
+  background:#ffffffcc; backdrop-filter: blur(6px);
+  border-top:1px solid #e5e7eb;
 }
 .mobile-tabbar__btn{
-  display:flex; align-items:center; justify-content:center; gap:6px;
-  padding:10px 8px; border-radius:10px; font-size:14px; font-weight:600;
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  padding:12px 10px; border-radius:12px; font-size:14px; font-weight:700;
   color:#1f2937; background:#f3f4f6;
 }
-.mobile-tabbar__btn--active{ color:#ffffff; background:#10b981; }
-.mobile-tabbar__btn span{ display:inline }
-@media (max-width: 360px){
-  .mobile-tabbar__btn span{ display:none } /* 超小型端末はアイコンのみ */
-}
+.mobile-tabbar__btn--active{ color:#fff; background:#10b981; }
+.mobile-tabbar__btn span{ display:inline; }
+@media (max-width:360px){ .mobile-tabbar__btn span{ display:none; } }
 
-/* タブ分の下余白（本文側に付与して重なり回避） */
+/* 本文側にタブ分の下余白を確保（重なり防止） */
 .with-tabbar-pad{
-  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 12px);
+  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom,0px) + 14px);
 }
