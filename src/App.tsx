@@ -16,17 +16,14 @@ function AppContent() {
   useKeyboardShortcuts();
 
   const {
-    showPromptPanel,
-    setShowPromptPanel,
-    showHistory,
-    setShowHistory,
+    showPromptPanel, setShowPromptPanel,
+    showHistory, setShowHistory,
   } = useAppStore();
 
   const [isMobile, setIsMobile] = React.useState<boolean>(
     typeof window !== 'undefined' ? window.innerWidth < 768 : false
   );
 
-  // 初回&リサイズでモバイル判定
   React.useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
     check();
@@ -34,27 +31,19 @@ function AppContent() {
     return () => window.removeEventListener('resize', check);
   }, []);
 
-  // モバイル初回は左右パネルを閉じる
   React.useEffect(() => {
-    if (isMobile) {
-      setShowPromptPanel(false);
-      setShowHistory(false);
-    }
+    if (isMobile) { setShowPromptPanel(false); setShowHistory(false); }
   }, [isMobile, setShowPromptPanel, setShowHistory]);
 
-  // 背景クリックで閉じる（オーバーレイ時）
-  const closeAllOverlays = () => {
-    setShowPromptPanel(false);
-    setShowHistory(false);
-  };
+  const closeAllOverlays = () => { setShowPromptPanel(false); setShowHistory(false); };
 
   return (
-    <div className="h-screen bg-white text-gray-900 flex flex-col font-sans">
+    <div className="app-viewport bg-white text-gray-900 flex flex-col font-sans">
       <Header />
 
       {/* コンテンツ（モバイルはタブ分の下余白を追加） */}
       <div className={cn("flex-1 flex min-h-0 relative", isMobile && "with-tabbar-pad")}>
-        {/* 左パネル（編集） */}
+        {/* 左（編集） */}
         {isMobile ? (
           <>
             {showPromptPanel && <div className="mobile-backdrop md:hidden" onClick={closeAllOverlays} />}
@@ -82,7 +71,7 @@ function AppContent() {
           <ImageCanvas />
         </div>
 
-        {/* 右パネル（履歴） */}
+        {/* 右（履歴） */}
         {isMobile ? (
           <>
             {showHistory && <div className="mobile-backdrop md:hidden" onClick={closeAllOverlays} />}
@@ -130,7 +119,7 @@ function AppContent() {
         </nav>
       )}
 
-      {/* PCのみフッター表示（モバイルはタブと重なるので非表示） */}
+      {/* PC のみフッター（モバイルはタブと重なるので非表示） */}
       <footer className={cn("border-t border-gray-200 bg-white text-xs text-gray-500 px-4 py-3", isMobile && "hidden")}>
         <div>© 2025 EVERYSAN — Modified from NanoBananaEditor (AGPLv3)</div>
         <div className="mt-1">
