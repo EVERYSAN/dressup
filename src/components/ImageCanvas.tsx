@@ -224,7 +224,7 @@ export const ImageCanvas: React.FC = () => {
                 DRESSUP へようこそ
               </h2>
               <p className="mt-2 text-sm text-gray-600 text-center">
-                3分で使い始められます。「編集」からどうぞ。
+                ✂「編集」に移動
               </p>
               <ol className="mt-6 space-y-4 text-gray-800">
                 <li className="flex gap-3">
