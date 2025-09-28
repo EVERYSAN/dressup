@@ -54,41 +54,10 @@ function AppContent() {
     <div className="h-screen bg-white text-gray-900 flex flex-col font-sans">
       <Header />
 
-      {/* モバイル専用ツールバー（編集／履歴トグル） */}
-      {isMobile && (
-        <div className="mobile-toolbar md:hidden">
-          <button
-            className={cn(
-              "px-3 py-2 rounded-md text-sm font-medium",
-              showPromptPanel ? "bg-emerald-600 text-white" : "bg-emerald-50 text-emerald-700"
-            )}
-            onClick={() => {
-              setShowPromptPanel((v) => !v);
-              setShowHistory(false);
-            }}
-          >
-            ✂ 編集
-          </button>
-          <button
-            className={cn(
-              "px-3 py-2 rounded-md text-sm font-medium",
-              showHistory ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-800"
-            )}
-            onClick={() => {
-              setShowHistory((v) => !v);
-              setShowPromptPanel(false);
-            }}
-          >
-            🕘 履歴
-          </button>
-        </div>
-      )}
-
       {/* コンテンツ */}
       <div className="flex-1 flex min-h-0 relative">
 
         {/* 左パネル（編集） */}
-        {/* PC: 常時サイドバー / モバイル: オーバーレイ */}
         {isMobile ? (
           <>
             {showPromptPanel && <div className="mobile-backdrop md:hidden" onClick={closeAllOverlays} />}
@@ -111,7 +80,7 @@ function AppContent() {
           </div>
         )}
 
-        {/* キャンバス */}
+        {/* キャンバス（ホーム） */}
         <div className="flex-1 min-w-0">
           <ImageCanvas />
         </div>
@@ -136,6 +105,36 @@ function AppContent() {
           </div>
         )}
       </div>
+
+      {/* モバイル：下部タブ（ホーム / 編集 / 履歴） */}
+      {isMobile && (
+        <nav className="mobile-tabbar md:hidden">
+          <button
+            className={cn(
+              "mobile-tabbar__btn",
+              !showPromptPanel && !showHistory && "mobile-tabbar__btn--active"
+            )}
+            onClick={() => { setShowPromptPanel(false); setShowHistory(false); }}
+            aria-label="ホーム"
+          >
+            🖼️ <span>ホーム</span>
+          </button>
+          <button
+            className={cn("mobile-tabbar__btn", showPromptPanel && "mobile-tabbar__btn--active")}
+            onClick={() => { setShowPromptPanel(v => !v); setShowHistory(false); }}
+            aria-label="編集"
+          >
+            ✂ <span>編集</span>
+          </button>
+          <button
+            className={cn("mobile-tabbar__btn", showHistory && "mobile-tabbar__btn--active")}
+            onClick={() => { setShowHistory(v => !v); setShowPromptPanel(false); }}
+            aria-label="履歴"
+          >
+            🕘 <span>履歴</span>
+          </button>
+        </nav>
+      )}
 
       {/* フッター（そのまま） */}
       <footer className="border-t border-gray-200 bg-white text-xs text-gray-500 px-4 py-3">
