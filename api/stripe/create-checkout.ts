@@ -4,7 +4,7 @@ import Stripe from 'stripe';
 import { getUserFromRequest } from '../_utils/auth';
 import { supabaseAdmin } from '../_utils/supabase';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
+const stripe = new Stripe(process.env.STRIPE_API_KEY as string, {
   apiVersion: '2024-09-30.acacia',
 });
 
