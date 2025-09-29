@@ -40,7 +40,7 @@ export const PromptComposer: React.FC = () => {
     addEdit,
   } = useAppStore();
 
-  // Base はローカルで管理（不変に保つ）
+  // ローカル管理のベース（ある場合のみ）
   const [baseImage, setBaseImage] = useState<string | null>(null);
 
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -50,23 +50,30 @@ export const PromptComposer: React.FC = () => {
 
   const handleApplyEdit = async () => {
     const prompt = currentPrompt.trim();
-    if (!prompt || !baseImage) return;
+
+    // 画像の自動割当て：
+    // - baseImage があればそれを primary（= image1）
+    // - なければ参照配列の先頭を primary として扱う
+    // - secondary（= image2）は、baseImage が無い場合は参照配列の2番目、ある場合は参照配列の1番目
+    const primary = baseImage ?? editReferenceImages[0] ?? null;
+    const secondary = baseImage ? (editReferenceImages[0] ?? null) : (editReferenceImages[1] ?? null);
+
+    // 実行可能条件：プロンプト && primary があること
+    if (!prompt || !primary) return;
 
     // Vercel Edge 対策：payload を控えめに
-    const approxTotalMB = [baseImage, editReferenceImages[0]]
+    const approxTotalMB = [primary, secondary]
       .filter(Boolean)
       .reduce((s, d) => s + base64SizeMB(d as string), 0);
 
     if (approxTotalMB > 3.5) {
-      console.warn(
-        `[DRESSUP] payload too large (~${approxTotalMB.toFixed(2)} MB). Try smaller images.`
-      );
+      console.warn(`[DRESSUP] payload too large (~${approxTotalMB.toFixed(2)} MB). Try smaller images.`);
       alert('画像が大きすぎます。もう少し小さい画像でお試しください。');
       return;
     }
 
     try {
-      // ★ ここがポイント：Supabase の access_token を取り、Bearer で投げる
+      // Supabase の access_token を取り、Bearer で投げる
       const { data: sessionData, error: sErr } = await supabase.auth.getSession();
       if (sErr) throw sErr;
 
@@ -78,9 +85,9 @@ export const PromptComposer: React.FC = () => {
 
       const payload = {
         prompt,
-        image1: baseImage,
-        image2: editReferenceImages[0] || null,
-        // お好みでパラメータを渡したい場合
+        image1: primary,
+        image2: secondary, // 参照が無い場合は null が飛ぶ
+        // 任意のパラメータ
         // temperature,
         // seed,
       };
@@ -95,7 +102,6 @@ export const PromptComposer: React.FC = () => {
       });
 
       if (!resp.ok) {
-        // サーバ側の典型的なエラーを見やすく
         const text = await resp.text().catch(() => '');
         console.error('[DRESSUP] generate failed:', resp.status, text);
         if (resp.status === 401) {
@@ -106,23 +112,11 @@ export const PromptComposer: React.FC = () => {
           alert(`サーバエラーが発生しました (code: ${resp.status})`);
         }
         return;
-        }
+      }
 
-      // サーバは base64 画像を返す想定
-      type GenResponse = {
-        imageDataUrl?: string; // data:<mime>;base64,.... 形式
-        // もしくは { mimeType, data } 形式など、あなたの API 仕様に合わせて調整
-      };
-
+      type GenResponse = { imageDataUrl?: string };
       const json = (await resp.json()) as GenResponse;
-
-      // 返却仕様に合わせてパース
-      let dataUrl = json?.imageDataUrl;
-
-      // もし API が { mimeType, data } で返す場合は以下のように組み立てる：
-      // if (!dataUrl && (json as any)?.mimeType && (json as any)?.data) {
-      //   dataUrl = `data:${(json as any).mimeType};base64,${(json as any).data}`;
-      // }
+      const dataUrl = json?.imageDataUrl;
 
       if (!dataUrl) {
         console.warn('[DRESSUP] [generate] no image in response');
@@ -144,16 +138,14 @@ export const PromptComposer: React.FC = () => {
         timestamp: Date.now(),
       });
 
-      // ここで UI 上の残り回数バッジを更新したい場合は、
-      // /api/me のようなエンドポイントで credits_used/credits_total を取得して
-      // store を更新するフローを入れると良いです。
+      // ※ 残り回数バッジ更新が必要なら /api/me などで再取得し store 更新する
     } catch (e) {
       console.error('[DRESSUP] generate failed', e);
       alert('通信に失敗しました。時間をおいて再度お試しください。');
     }
   };
 
-  // アップロード：先に Base、以降は Ref
+  // アップロード：先に Base、以降は Ref（ベース未設定なら最初の1枚をベースとする）
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
@@ -166,14 +158,13 @@ export const PromptComposer: React.FC = () => {
         const mb = base64SizeMB(dataUrl);
         console.log(`[DRESSUP] resized upload ~${mb.toFixed(2)} MB`);
 
-        if (!baseImage) {
+        if (!baseImage && editReferenceImages.length === 0) {
+          // 最初の1枚はベース扱い
           setBaseImage(dataUrl);
           setCanvasImage(dataUrl);
         } else {
-          if (
-            !editReferenceImages.includes(dataUrl) &&
-            editReferenceImages.length < 2
-          ) {
+          // 2枚目以降は参照（最大2枚）
+          if (!editReferenceImages.includes(dataUrl) && editReferenceImages.length < 2) {
             addEditReferenceImage(dataUrl);
           }
         }
@@ -213,11 +204,11 @@ export const PromptComposer: React.FC = () => {
   }
 
   const hasPrompt = currentPrompt.trim().length > 0;
-  const canEdit = hasPrompt && !!baseImage;
+  const primaryExists = !!(baseImage ?? editReferenceImages[0]);
+  const canEdit = hasPrompt && primaryExists;
 
   return (
     <>
-      {/* ← モバイル時は p-4/space-4、PCは元の p-6/space-6 */}
       <div className="w-[92vw] md:w-72 xl:w-80 h-full bg-emerald-50 border-r border-emerald-100 p-4 md:p-6 flex flex-col space-y-4 md:space-y-6 overflow-y-auto shadow-sm">
         {/* ==== Header ==== */}
         <div className="mb-2">
@@ -248,7 +239,7 @@ export const PromptComposer: React.FC = () => {
             </div>
           </div>
           <p className="mt-2 text-xs text-emerald-800/80">
-            このエリアで「ベース画像・参照画像のアップロード」と「変更内容の指示」を設定します。
+            まずは<strong>ベース画像</strong>を1枚アップし、必要なら<strong>参照画像</strong>を追加してから指示を書いてください。
           </p>
         </div>
 
