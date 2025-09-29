@@ -1,35 +1,47 @@
-import { supabase } from './supabaseClient';
+import Stripe from 'stripe';
 
-async function token() {
-  const { data: { session } } = await supabase.auth.getSession();
-  return session?.access_token || '';
-}
+export const config = { runtime: 'nodejs18.x' }; // 省略可（Vercel の場合）
 
-export async function buy(plan:'light'|'basic'|'pro') {
-  const r = await fetch('/api/stripe/create-checkout', {
-    method:'POST',
-    headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${await token()}` },
-    body: JSON.stringify({ plan })
+const stripe = new Stripe(process.env.STRIPE_API_KEY!, {
+  apiVersion: '2024-06-20',
+});
+
+export default async function handler(req: Request): Promise<Response> {
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  let plan: 'light' | 'basic' | 'pro' | undefined;
+  try {
+    const body = await req.json();            // ← JSON を受け取る
+    plan = body?.plan;
+  } catch {
+    /* noop */
+  }
+  if (!plan) {
+    return new Response(JSON.stringify({ error: 'plan is required' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const priceIdMap: Record<'light'|'basic'|'pro', string> = {
+    light: process.env.STRIPE_PRICE_LIGHT!,
+    basic: process.env.STRIPE_PRICE_BASIC!,
+    pro:   process.env.STRIPE_PRICE_PRO!,
+  };
+
+  const session = await stripe.checkout.sessions.create({
+    mode: 'subscription',
+    line_items: [{ price: priceIdMap[plan], quantity: 1 }],
+    success_url: `${process.env.NEXT_PUBLIC_APP_URL}/?success=1`,
+    cancel_url:  `${process.env.NEXT_PUBLIC_APP_URL}/?canceled=1`,
   });
-  const { url } = await r.json();
-  location.href = url;
-}
 
-export async function openPortal() {
-  const r = await fetch('/api/stripe/create-portal', {
-    method:'POST',
-    headers:{ Authorization:`Bearer ${await token()}` }
+  return new Response(JSON.stringify({ url: session.url }), {
+    headers: { 'Content-Type': 'application/json' },
   });
-  const { url } = await r.json();
-  location.href = url;
-}
-
-export async function generate(payload:any) {
-  const r = await fetch('/api/generate', {
-    method:'POST',
-    headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${await token()}` },
-    body: JSON.stringify(payload)
-  });
-  if (r.status === 402) return { ok:false, reason:'no-credits' };
-  return await r.json();
 }
