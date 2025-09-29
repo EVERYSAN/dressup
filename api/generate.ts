@@ -1,41 +1,113 @@
 // api/generate.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-/** スモークテスト: true のときは image1 をそのまま返す */
-const ECHO_GENERATE = String(process.env.ECHO_GENERATE || '').toLowerCase() === 'true';
+// ✅ Gemini だけ使う（Images API / NANOBANANA は使わない）
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
+const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
 
-/** Gemini 画像生成に使うキー/モデル/エンドポイント */
-const GEMINI_API_KEY =
-  process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GENAI_API_KEY || '';
-/** 画像出力対応のモデル（既定は 2.5 Flash Image） */
-const GEMINI_IMAGE_MODEL =
-  process.env.GEMINI_IMAGE_MODEL || 'models/gemini-2.5-flash-image';
-/** v1beta generateContent エンドポイント */
-const GEMINI_ENDPOINT =
-  process.env.GEMINI_IMAGES_ENDPOINT ||
-  'https://generativelanguage.googleapis.com/v1beta';
+// --- helpers ---
+function b64FromDataUrl(input: string): { mime: string; data: string } {
+  // data:[mime];base64,xxxx
+  const m = input.match(/^data:(.+?);base64,(.+)$/);
+  if (m) return { mime: m[1], data: m[2] };
+  // 裸のbase64だけ来るケースにも対応（デフォルトPNG扱い）
+  return { mime: 'image/png', data: input };
+}
 
-type GenerateBody = {
+function findInlineImageFromCandidates(resp: any): { data: string; mimeType: string } | null {
+  const cands = resp?.candidates ?? [];
+  for (const c of cands) {
+    const parts = c?.content?.parts ?? [];
+    for (const p of parts) {
+      const d = p?.inlineData;
+      if (d?.data) {
+        const mime = d.mimeType || 'image/png';
+        return { data: d.data, mimeType: mime };
+      }
+    }
+  }
+  return null;
+}
+
+function firstText(resp: any): string | null {
+  const cands = resp?.candidates ?? [];
+  for (const c of cands) {
+    const parts = c?.content?.parts ?? [];
+    for (const p of parts) {
+      if (typeof p?.text === 'string' && p.text.trim()) return p.text.trim();
+    }
+  }
+  return null;
+}
+
+// 画像生成（Gemini固定）
+async function callGeminiGenerateImage({
+  apiKey,
+  model,
+  prompt,
+  image1,
+  image2,
+  temperature = 0.6,
+  seed = undefined as number | undefined,
+  forceImageOnly = false,
+}: {
+  apiKey: string;
+  model: string;
   prompt: string;
-  image1: string;           // base64 data URL
-  image2?: string | null;   // optional 2nd image (data URL)
+  image1: string;
+  image2?: string | null;
   temperature?: number;
-  seed?: number | null;
-};
+  seed?: number;
+  forceImageOnly?: boolean;
+}) {
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const genModel = genAI.getGenerativeModel({
+    model,
+    // 画像だけ返すように強制
+    generationConfig: {
+      responseMimeType: 'image/png',
+      temperature: forceImageOnly ? 0 : temperature ?? 0.6,
+      ...(seed !== undefined ? { seed } : {}),
+    },
+    ...(forceImageOnly
+      ? {
+          systemInstruction: {
+            role: 'system',
+            parts: [
+              {
+                text:
+                  'Return an edited image as inline image only. Do not include any text. Output must be PNG.',
+              },
+            ],
+          },
+        }
+      : undefined),
+  });
 
-// Data URL -> { mime, base64 }
-function splitDataUrl(dataUrl: string) {
-  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-  if (!m) throw new Error('Invalid data URL');
-  return { mime: m[1], base64: m[2] };
+  // 入力 parts: image1 → image2 → text(prompt)
+  const p1 = b64FromDataUrl(image1);
+  const parts: any[] = [
+    { inlineData: { mimeType: p1.mime, data: p1.data } },
+  ];
+  if (image2) {
+    const p2 = b64FromDataUrl(image2);
+    parts.push({ inlineData: { mimeType: p2.mime, data: p2.data } });
+  }
+  parts.push({ text: prompt });
+
+  // 単発生成
+  const resp = await genModel.generateContent({
+    contents: [{ role: 'user', parts }],
+  });
+  return resp.response;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS(必要なら)
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type');
@@ -43,9 +115,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method Not Allowed' });
+    }
 
-    // 1) 認証
+    if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+      return res.status(500).json({ error: 'Server misconfigured (Supabase)' });
+    }
+    if (!GEMINI_API_KEY) {
+      return res.status(500).json({ error: 'Server misconfigured (GEMINI_API_KEY missing)' });
+    }
+
+    // --- 認証 & 残回数チェック ---
     const auth = req.headers.authorization || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
     if (!token) return res.status(401).json({ error: 'Missing bearer token' });
@@ -53,115 +134,64 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
     const { data: uinfo, error: uerr } = await supabase.auth.getUser(token);
     if (uerr || !uinfo?.user) return res.status(401).json({ error: 'Invalid token' });
-    const uid = uinfo.user.id;
+    const userId = uinfo.user.id;
 
-    // 2) クレジット残高確認
     const { data: row, error: selErr } = await supabase
       .from('users')
       .select('credits_total, credits_used')
-      .eq('id', uid)          // ←テーブルが id(uuid) 主キーの前提
+      .eq('id', userId) // ← あなたのusersテーブル主キーがid(uuid)である前提
       .single();
 
-    if (selErr || !row) return res.status(500).json({ error: 'DB error(select users)', detail: selErr?.message || 'row not found' });
-
+    if (selErr || !row) return res.status(500).json({ error: 'User row not found' });
     const remaining = (row.credits_total ?? 0) - (row.credits_used ?? 0);
     if (remaining <= 0) return res.status(402).json({ error: 'No credits' });
 
-    const { prompt, image1, image2 = null, temperature = 0.7, seed = null } = (req.body || {}) as GenerateBody;
-    if (!prompt || !image1) return res.status(400).json({ error: 'Missing prompt or image1' });
-
-    // 3) 先に消費（多重実行に強い）
-    const { error: rpcErr } = await supabase.rpc('consume_credit', { p_user_id: uid });
+    // 先に消費（重複押下対策）
+    const { error: rpcErr } = await supabase.rpc('consume_credit', { p_user_id: userId });
     if (rpcErr) return res.status(409).json({ error: 'Consume failed', detail: rpcErr.message });
 
-    // 4) スモークテスト
-    if (ECHO_GENERATE) {
-      try {
-        const { mime, base64 } = splitDataUrl(image1);
-        return res.status(200).json({ image: { data: base64, mimeType: mime } });
-      } catch (e: any) {
-        return res.status(500).json({ error: 'Echo failed', detail: String(e?.message || e) });
-      }
-    }
+    // --- リクエスト取り出し ---
+    const { prompt, image1, image2 = null, temperature = 0.6, seed = undefined } = req.body || {};
+    if (!prompt || !image1) return res.status(400).json({ error: 'Missing prompt or image1' });
 
-    if (!GEMINI_API_KEY) {
-      return res.status(500).json({ error: 'Server error', detail: 'Gemini API key is not configured.' });
-    }
-
-    // 5) Gemini へリクエスト（画像返答を強制）
-    const parts: any[] = [{ text: prompt }];
-
-    // base
-    const b = splitDataUrl(image1);
-    parts.push({ inlineData: { mimeType: b.mime, data: b.base64 } });
-    // ref (任意)
-    if (image2) {
-      const r = splitDataUrl(image2);
-      parts.push({ inlineData: { mimeType: r.mime, data: r.base64 } });
-    }
-
-    const body = {
-      contents: [{ role: 'user', parts }],
-      generationConfig: {
-        responseMimeType: 'image/png',   // ←画像で返させる
-        temperature,
-        ...(seed != null ? { seed } : {}),
-      },
-      systemInstruction: {
-        role: 'system',
-        parts: [
-          {
-            text:
-              'You are an image editor. Return an IMAGE only (inlineData) that reflects the instruction. ' +
-              'Do NOT return any text or explanations. Preserve pose and lighting unless the instruction says otherwise.',
-          },
-        ],
-      },
-    };
-
-    const url = `${GEMINI_ENDPOINT}/${encodeURIComponent(GEMINI_IMAGE_MODEL)}:generateContent?key=${encodeURIComponent(
-      GEMINI_API_KEY
-    )}`;
-
-    const gRes = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+    // --- 1回目（通常） ---
+    let response = await callGeminiGenerateImage({
+      apiKey: GEMINI_API_KEY,
+      model: GEMINI_IMAGE_MODEL,
+      prompt,
+      image1,
+      image2,
+      temperature,
+      seed,
     });
 
-    if (!gRes.ok) {
-      const txt = await gRes.text().catch(() => '');
-      return res.status(500).json({ error: 'Images API error', detail: txt || gRes.statusText });
+    let found = findInlineImageFromCandidates(response);
+    if (!found) {
+      // --- 2回目（画像のみ強制で再試行） ---
+      response = await callGeminiGenerateImage({
+        apiKey: GEMINI_API_KEY,
+        model: GEMINI_IMAGE_MODEL,
+        prompt,
+        image1,
+        image2,
+        temperature: 0,
+        seed,
+        forceImageOnly: true,
+      });
+      found = findInlineImageFromCandidates(response);
     }
 
-    const payload = await gRes.json();
-
-    // 6) 画像取り出し（1)ダイレクト返却形式 / 2)Gemini の inlineData）
-    const partsOut = payload?.candidates?.[0]?.content?.parts || [];
-    const inline = partsOut.find((p: any) => p?.inlineData?.data)?.inlineData;
-
-    if (!inline?.data) {
-      // モデルが誤ってテキストだけ返した場合のガード
-      const fallbackText =
-        (partsOut.find((p: any) => typeof p?.text === 'string')?.text as string | undefined) || payload?.text;
-      return res.status(500).json({
-        error: 'No image in response',
-        text: fallbackText,
+    if (found) {
+      return res.status(200).json({
+        image: { data: found.data, mimeType: found.mimeType || 'image/png' },
       });
     }
 
-    return res.status(200).json({
-      // フロントが後方互換で拾えるよう raw の candidates も返す
-      candidates: [
-        {
-          content: {
-            parts: [{ inlineData: { data: inline.data, mimeType: inline.mimeType || 'image/png' } }],
-          },
-        },
-      ],
-      image: { data: inline.data, mimeType: inline.mimeType || 'image/png' }, // 新形式
-    });
+    // テキストしか返らない場合のログ用
+    const txt = firstText(response) || 'No image in response';
+    return res.status(502).json({ error: 'No image in response', text: txt });
   } catch (e: any) {
-    return res.status(500).json({ error: 'Server error', detail: String(e?.message || e) });
+    // ここに Images API の 404/Not Found が来ていた
+    return res.status(500).json({ error: 'Images API error', detail: e?.message || String(e) });
   }
 }
