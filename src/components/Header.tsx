@@ -1,23 +1,15 @@
 // src/components/Header.tsx
 import React, { useCallback, useMemo, useState } from 'react';
 import { LogOut, Wallet } from 'lucide-react';
-import { PricingDialog } from './PricingDialog';   // ← named import に変更
+import PricingDialog from './PricingDialog';           // ← default import
 import { supabase } from '../lib/supabaseClient';
 import { openPortal } from '../lib/billing';
-import { useAppStore } from '../store/useAppStore'; // ← named import
+import { useAppStore } from '../store/useAppStore';
 
-/**
- * ヘッダー
- * - 残り回数バッジ
- * - プラン購入 => PricingDialog をモーダル表示
- * - 支払い設定（Stripe カスタマーポータル）
- * - ログアウト
- */
 export function Header() {
   const [pricingOpen, setPricingOpen] = useState(false);
 
-  // 残回数は store の users テーブル相当の値から算出
-  const user = useAppStore((s) => s.user);
+  const { user } = useAppStore((s) => ({ user: s.user }));
   const remaining = useMemo(() => {
     const total = user?.credits_total ?? 0;
     const used = user?.credits_used ?? 0;
@@ -46,21 +38,19 @@ export function Header() {
 
   return (
     <header className="flex items-center justify-between gap-3 px-4 py-3">
-      {/* 左：残回数 */}
       <div className="flex items-center gap-2">
         <span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">
           残り {remaining} 回
         </span>
       </div>
 
-      {/* 右：操作ボタン群 */}
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={handleOpenPricing}
           className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium hover:bg-gray-50"
         >
-          <span>プラン購入</span>
+          プラン購入
         </button>
 
         <button
@@ -83,7 +73,6 @@ export function Header() {
         </button>
       </div>
 
-      {/* プライシングのモーダル */}
       <PricingDialog open={pricingOpen} onClose={handleClosePricing} />
     </header>
   );
