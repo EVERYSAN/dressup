@@ -1,79 +1,79 @@
+// api/stripe/create-checkout.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
-import { getUserFromRequest } from '../_utils/auth';
-import { supabaseAdmin } from '../_utils/supabase';
 
-const stripe = new Stripe(process.env.STRIPE_API_KEY as string, {
-  apiVersion: '2024-06-20', // v16 の型に合う日付
-} as Stripe.StripeConfig);
+// ■ Stripe サーバーキー（公開鍵 pk_ では動きません）
+const STRIPE_API_KEY = process.env.STRIPE_API_KEY || '';
+// ■ 各プランの Price ID（Dashboard の “価格” の ID）
+const PRICE_LIGHT  = process.env.STRIPE_PRICE_LIGHT  || '';
+const PRICE_BASIC  = process.env.STRIPE_PRICE_BASIC  || '';
+const PRICE_PRO    = process.env.STRIPE_PRICE_PRO    || '';
+// ■ フロントの URL（成功/キャンセル遷移先）
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_APP_URL ?? '';
+
+const stripe = new Stripe(STRIPE_API_KEY, {
+  // Stripe の型エラーを避けるための API バージョン指定
+  apiVersion: '2024-06-20',
+});
 
 type Plan = 'light' | 'basic' | 'pro';
 
-const PRICE_ENV: Record<Plan, string | undefined> = {
-  light: process.env.STRIPE_PRICE_LIGHT,
-  basic: process.env.STRIPE_PRICE_BASIC,
-  pro: process.env.STRIPE_PRICE_PRO,
-};
+function priceFromPlan(plan: Plan): string | null {
+  switch (plan) {
+    case 'light': return PRICE_LIGHT || null;
+    case 'basic': return PRICE_BASIC || null;
+    case 'pro'  : return PRICE_PRO   || null;
+    default     : return null;
+  }
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    if (req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
-    if (!process.env.STRIPE_API_KEY) return res.status(500).json({ error: 'missing STRIPE_API_KEY' });
-
-    // JSON で来なかった場合の保険
-    const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body ?? {});
-    const user = await getUserFromRequest(req);
-    if (!user) return res.status(401).json({ error: 'unauthorized' });
-
-    // plan をバリデーションして Plan 型に確定させる
-    const planRaw = body?.plan as string | undefined;
-    if (!planRaw || !['light', 'basic', 'pro'].includes(planRaw)) {
-      return res.status(400).json({ error: 'plan must be one of: light | basic | pro' });
-    }
-    const plan = planRaw as Plan;
-
-    const price = PRICE_ENV[plan];
-    if (!price) return res.status(500).json({ error: `price id env not set for ${plan}` });
-
-    // 既存 customer を探す or 作成
-    let customerId: string | undefined;
-    const { data: u } = await supabaseAdmin
-      .from('users')
-      .select('stripe_customer_id')
-      .eq('id', user.id)
-      .single();
-
-    customerId = u?.stripe_customer_id || undefined;
-
-    if (!customerId) {
-      const c = await stripe.customers.create({
-        email: user.email ?? undefined,
-        metadata: { user_id: user.id },
-      });
-      customerId = c.id;
-      await supabaseAdmin.from('users').update({ stripe_customer_id: customerId }).eq('id', user.id);
+    if (req.method !== 'POST') {
+      res.status(405).json({ error: 'Method Not Allowed' });
+      return;
     }
 
-    const origin =
-      process.env.NEXT_PUBLIC_APP_URL ||
-      process.env.PUBLIC_APP_URL ||
-      `https://${req.headers.host}`;
+    // ここで body を JSON として読む（Vercel は既にパース済みのことが多い）
+    const body = (typeof req.body === 'string') ? JSON.parse(req.body) : req.body || {};
+    const plan: Plan | undefined = body?.plan;
 
-    // ここまで来れば plan は Plan（= string）なので metadata も型 OK
+    if (!plan || !['light','basic','pro'].includes(plan)) {
+      res.status(400).json({ error: 'plan is required: "light" | "basic" | "pro"' });
+      return;
+    }
+    if (!STRIPE_API_KEY) {
+      res.status(500).json({ error: 'Missing STRIPE_API_KEY' });
+      return;
+    }
+
+    const priceId = priceFromPlan(plan);
+    if (!priceId) {
+      res.status(500).json({ error: `Missing price id for plan "${plan}"` });
+      return;
+    }
+
+    // 失敗時の戻り先（ホームに戻すなど）
+    const successUrl = `${APP_URL || 'https://dressupai.app'}/?checkout=success`;
+    const cancelUrl  = `${APP_URL || 'https://dressupai.app'}/?checkout=cancel`;
+
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
-      customer: customerId,
-      line_items: [{ price, quantity: 1 }],
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: successUrl,
+      cancel_url : cancelUrl,
+      // ここでメタデータにプラン名等を乗せると後段の Webhook で扱いやすいです
+      metadata: { plan },
       allow_promotion_codes: true,
-      success_url: `${origin}/?success=1`,
-      cancel_url: `${origin}/?canceled=1`,
-      metadata: { user_id: user.id, plan },
     });
 
-    return res.status(200).json({ url: session.url });
+    res.status(200).json({ url: session.url });
   } catch (err: any) {
+    // どんなエラーでも 200 を返さず、理由を JSON で返す
     console.error('[create-checkout] error:', err);
-    // 500 でも JSON を返す（フロントで JSON.parse エラーにならないように）
-    return res.status(500).json({ error: err?.message ?? 'internal error' });
+    res.status(500).json({
+      error: 'create-checkout failed',
+      message: err?.message ?? String(err),
+    });
   }
 }
