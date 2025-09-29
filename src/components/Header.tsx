@@ -4,7 +4,7 @@ import { LogOut, Wallet } from 'lucide-react';
 import PricingDialog from './PricingDialog';
 import { supabase } from '../lib/supabaseClient';
 import { openPortal } from '../lib/billing';
-import useAppStore from '../stores/useAppStore';
+import useAppStore from '../store/useAppStore';
 
 /**
  * ヘッダー
