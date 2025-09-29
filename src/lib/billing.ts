@@ -1,46 +1,66 @@
 // src/lib/billing.ts
-// Stripe Checkout / Customer Portal を叩くクライアント側ユーティリティ（フロント専用）
+import { supabase } from './supabaseClient';
 
 type Plan = 'light' | 'basic' | 'pro';
 
-async function postJson<T = any>(url: string, body?: unknown): Promise<T> {
-  const res = await fetch(url, {
+async function getAccessToken(): Promise<string> {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw new Error(`Failed to get session: ${error.message}`);
+  const token = data.session?.access_token;
+  if (!token) throw new Error('Not signed in (no access token)');
+  return token;
+}
+
+/**
+ * Stripe Customer Portal を開く
+ * サーバ関数 /api/stripe/create-portal は Authorization ヘッダ必須
+ */
+export async function openPortal(): Promise<void> {
+  const token = await getAccessToken();
+
+  const res = await fetch('/api/stripe/create-portal', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : '{}',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
   });
 
-  const text = await res.text();
   if (!res.ok) {
+    // サーバは JSON を返すはずなので読み取ってエラー表示
+    const text = await res.text();
     throw new Error(`Server responded ${res.status}: ${text}`);
   }
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    throw new Error(`Invalid JSON from server: ${text}`);
-  }
+
+  const { url } = await res.json();
+  if (!url) throw new Error('No portal URL in response');
+  // リダイレクト
+  window.location.href = url;
 }
 
-/** プラン購入 → Stripe Checkout にリダイレクト */
-export async function buy(plan: Plan) {
-  try {
-    const data = await postJson<{ url: string }>('/api/stripe/create-checkout', { plan });
-    if (!data?.url) throw new Error('Checkout URL missing');
-    window.location.href = data.url;
-  } catch (err: any) {
-    alert(`購入ページに進めませんでした:\n${err?.message ?? err}`);
-    console.error(err);
-  }
-}
+/**
+ * プラン購入（Checkout）
+ * /api/stripe/create-checkout へ plan を JSON で送る + Authorization 必須
+ */
+export async function buy(plan: Plan): Promise<void> {
+  const token = await getAccessToken();
 
-/** 請求先/支払い方法の変更 → Stripe Customer Portal へ */
-export async function openPortal() {
-  try {
-    const data = await postJson<{ url: string }>('/api/stripe/create-portal');
-    if (!data?.url) throw new Error('Portal URL missing');
-    window.location.href = data.url;
-  } catch (err: any) {
-    alert(`支払い設定ページに進めませんでした:\n${err?.message ?? err}`);
-    console.error(err);
+  // サーバ側(create-checkout.ts)で 'light' | 'basic' | 'pro' を受けて
+  // STRIPE_PRICE_LIGHT / STRIPE_PRICE_BASIC / STRIPE_PRICE_PRO を選んでいます。
+  const res = await fetch('/api/stripe/create-checkout', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ plan }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Server responded ${res.status}: ${text}`);
   }
+
+  const { url } = await res.json();
+  if (!url) throw new Error('No checkout URL in response');
+  window.location.href = url;
 }
