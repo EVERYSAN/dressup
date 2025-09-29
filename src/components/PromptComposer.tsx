@@ -2,15 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Textarea } from './ui/Textarea';
 import { Button } from './ui/Button';
 import { useAppStore } from '../store/useAppStore';
-import {
-  Upload,
-  Edit3,
-  HelpCircle,
-  ChevronDown,
-  ChevronRight,
-  RotateCcw,
-  Scissors,
-} from 'lucide-react';
+import { Upload, Edit3, HelpCircle, ChevronDown, ChevronRight, RotateCcw, Scissors } from 'lucide-react';
 import { PromptHints } from './PromptHints';
 import { cn } from '../utils/cn';
 import { resizeFileToDataURL, base64SizeMB } from '../utils/resizeImage';
@@ -40,7 +32,7 @@ export const PromptComposer: React.FC = () => {
     addEdit,
   } = useAppStore();
 
-  // ローカル管理のベース（ある場合のみ）
+  // ベース画像（このコンポーネント内だけで持つ）
   const [baseImage, setBaseImage] = useState<string | null>(null);
 
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -48,46 +40,46 @@ export const PromptComposer: React.FC = () => {
   const [showHintsModal, setShowHintsModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleApplyEdit = async () => {
-    const prompt = currentPrompt.trim();
+  // 安全に扱うため、undefined の可能性を吸収
+  const promptText = (currentPrompt ?? '').trim();
 
-    // 画像の自動割当て：
-    // - baseImage があればそれを primary（= image1）
-    // - なければ参照配列の先頭を primary として扱う
-    // - secondary（= image2）は、baseImage が無い場合は参照配列の2番目、ある場合は参照配列の1番目
+  const handleApplyEdit = async () => {
+    // 画像の自動割当て
     const primary = baseImage ?? editReferenceImages[0] ?? null;
     const secondary = baseImage ? (editReferenceImages[0] ?? null) : (editReferenceImages[1] ?? null);
 
-    // 実行可能条件：プロンプト && primary があること
-    if (!prompt || !primary) return;
+    // 実行条件チェックはここで行う（ボタンは常に押せる）
+    if (!promptText) {
+      alert('変更内容の指示を入力してください。');
+      return;
+    }
+    if (!primary) {
+      alert('まずはベース画像（または参照画像）を1枚アップロードしてください。');
+      return;
+    }
 
-    // Vercel Edge 対策：payload を控えめに
-    const approxTotalMB = [primary, secondary]
-      .filter(Boolean)
-      .reduce((s, d) => s + base64SizeMB(d as string), 0);
-
+    // Vercel Edge 対策：payload サイズを軽く保つ
+    const approxTotalMB = [primary, secondary].filter(Boolean).reduce((s, d) => s + base64SizeMB(d as string), 0);
     if (approxTotalMB > 3.5) {
-      console.warn(`[DRESSUP] payload too large (~${approxTotalMB.toFixed(2)} MB). Try smaller images.`);
       alert('画像が大きすぎます。もう少し小さい画像でお試しください。');
       return;
     }
 
     try {
-      // Supabase の access_token を取り、Bearer で投げる
+      // 認証トークンを必ず付与（Supabase セッション）
       const { data: sessionData, error: sErr } = await supabase.auth.getSession();
       if (sErr) throw sErr;
-
       const accessToken = sessionData?.session?.access_token;
       if (!accessToken) {
-        alert('ログインが必要です。右上のログインからサインインしてください。');
+        alert('ログインが必要です。右上の「ログイン」からサインインしてください。');
         return;
       }
 
       const payload = {
-        prompt,
+        prompt: promptText,
         image1: primary,
-        image2: secondary, // 参照が無い場合は null が飛ぶ
-        // 任意のパラメータ
+        image2: secondary ?? null,
+        // temperature, seed などを API に渡したい場合は有効化
         // temperature,
         // seed,
       };
@@ -107,7 +99,7 @@ export const PromptComposer: React.FC = () => {
         if (resp.status === 401) {
           alert('認証エラーです。もう一度ログインしてください。');
         } else if (resp.status === 402) {
-          alert('利用回数が上限に達しました。プランをご検討ください。');
+          alert('利用回数の上限に達しました。プランをご検討ください。');
         } else {
           alert(`サーバエラーが発生しました (code: ${resp.status})`);
         }
@@ -119,33 +111,32 @@ export const PromptComposer: React.FC = () => {
       const dataUrl = json?.imageDataUrl;
 
       if (!dataUrl) {
-        console.warn('[DRESSUP] [generate] no image in response');
         alert('画像の生成に失敗しました。もう一度お試しください。');
         return;
       }
 
-      // キャンバスに反映
+      // キャンバス反映
       setCanvasImage(dataUrl);
 
-      // 履歴に追加
+      // 履歴へ追加
       ensureProject();
       addEdit({
         id: `edit-${Date.now()}`,
-        instruction: prompt,
+        instruction: promptText,
         parentGenerationId: null,
         maskReferenceAsset: null,
         outputAssets: [{ id: 'out-0', url: dataUrl }],
         timestamp: Date.now(),
       });
 
-      // ※ 残り回数バッジ更新が必要なら /api/me などで再取得し store 更新する
+      // 必要に応じて /api/me 等で最新の残回数を再取得し、store を更新する処理をここに
     } catch (e) {
       console.error('[DRESSUP] generate failed', e);
       alert('通信に失敗しました。時間をおいて再度お試しください。');
     }
   };
 
-  // アップロード：先に Base、以降は Ref（ベース未設定なら最初の1枚をベースとする）
+  // 画像アップロード
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
@@ -155,8 +146,6 @@ export const PromptComposer: React.FC = () => {
           mime: 'image/webp',
           quality: 0.85,
         });
-        const mb = base64SizeMB(dataUrl);
-        console.log(`[DRESSUP] resized upload ~${mb.toFixed(2)} MB`);
 
         if (!baseImage && editReferenceImages.length === 0) {
           // 最初の1枚はベース扱い
@@ -203,7 +192,7 @@ export const PromptComposer: React.FC = () => {
     );
   }
 
-  const hasPrompt = currentPrompt.trim().length > 0;
+  const hasPrompt = promptText.length > 0;
   const primaryExists = !!(baseImage ?? editReferenceImages[0]);
   const canEdit = hasPrompt && primaryExists;
 
@@ -218,13 +207,7 @@ export const PromptComposer: React.FC = () => {
               <span className="text-base font-bold tracking-wide">編集</span>
             </div>
             <div className="flex items-center space-x-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowHintsModal(true)}
-                className="h-7 w-7"
-                title="ヒント"
-              >
+              <Button variant="ghost" size="icon" onClick={() => setShowHintsModal(true)} className="h-7 w-7" title="ヒント">
                 <HelpCircle className="h-4 w-4 text-emerald-700" />
               </Button>
               <Button
@@ -260,7 +243,7 @@ export const PromptComposer: React.FC = () => {
             </Button>
           </div>
 
-          {/* Base（正方形） */}
+          {/* Base */}
           {baseImage && (
             <div className="mt-3 space-y-2">
               <div className="relative">
@@ -317,50 +300,35 @@ export const PromptComposer: React.FC = () => {
         <div>
           <label className="text-sm font-medium text-gray-800 mb-3 block">変更内容の指示</label>
           <Textarea
-            value={currentPrompt}
+            value={currentPrompt ?? ''}
             onChange={(e) => setCurrentPrompt(e.target.value)}
             placeholder="例）1枚目の服を2枚目の服に置き換えてください（ポーズ・光は維持）"
             className="min-h-[120px] resize-none bg-white border border-emerald-200 text-gray-900 placeholder:text-gray-400 focus:border-emerald-300 focus:ring-0"
           />
 
-          <button
-            onClick={() => setShowHintsModal(true)}
-            className="mt-2 flex items-center text-xs transition-colors group"
-          >
-            {currentPrompt.length < 20 ? (
+          <button onClick={() => setShowHintsModal(true)} className="mt-2 flex items-center text-xs transition-colors group">
+            {promptText.length < 20 ? (
               <HelpCircle className="h-3 w-3 mr-2 text-red-500 group-hover:text-red-400" />
             ) : (
               <div
-                className={cn(
-                  'h-2 w-2 rounded-full mr-2',
-                  currentPrompt.length < 50 ? 'bg-yellow-500' : 'bg-green-500'
-                )}
+                className={cn('h-2 w-2 rounded-full mr-2', promptText.length < 50 ? 'bg-yellow-500' : 'bg-green-500')}
               />
             )}
             <span className="text-gray-600 group-hover:text-gray-700">
-              {currentPrompt.length < 20
-                ? '詳しく書くと精度が上がります'
-                : currentPrompt.length < 50
-                ? '十分な詳細です'
-                : 'とても良い詳細です'}
+              {promptText.length < 20 ? '詳しく書くと精度が上がります' : promptText.length < 50 ? '十分な詳細です' : 'とても良い詳細です'}
             </span>
           </button>
         </div>
 
-        {/* Execute */}
+        {/* Execute: 常に押せる。足りない条件は関数内で警告して止める */}
         <Button
           onClick={handleApplyEdit}
-          disabled={!canEdit}
-          className="group w-full h-12 md:h-14 text-sm md:text-base font-semibold tracking-wide
-                     text-white bg-emerald-600 hover:bg-emerald-700
-                     disabled:bg-white disabled:text-emerald-800
-                     disabled:border disabled:border-emerald-400
-                     disabled:shadow-none disabled:hover:bg-white disabled:hover:text-emerald-800
-                     disabled:cursor-not-allowed sticky bottom-2"
+          className={`group w-full h-12 md:h-14 text-sm md:text-base font-semibold tracking-wide text-white
+                      ${hasPrompt && primaryExists ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-emerald-400 hover:bg-emerald-400/90'}`}
           title="画像を編集"
         >
           <>
-            <Edit3 className="h-4 w-4 mr-2 group-disabled:text-emerald-700" />
+            <Edit3 className="h-4 w-4 mr-2" />
             画像を編集
           </>
         </Button>
@@ -417,7 +385,7 @@ export const PromptComposer: React.FC = () => {
                 <label className="text-xs text-gray-700 mb-2 block">シード（任意）</label>
                 <input
                   type="number"
-                  value={seed || ''}
+                  value={seed ?? ''}
                   onChange={(e) => setSeed(e.target.value ? parseInt(e.target.value) : null)}
                   placeholder="ランダム"
                   className="w-full h-8 px-2 bg-white border border-emerald-200 rounded text-xs text-gray-900 placeholder:text-gray-400 focus:border-emerald-300 focus:ring-0"
