@@ -28,9 +28,9 @@ function PlanMenu({
 }) {
   // 価格やクレジット目安はUI表示用（Stripeの金額と必ず合わせる）
   const items = [
-    { key: 'light' as const, title: 'ライト', desc: '月50回想定', price: '¥480/月' },
-    { key: 'basic' as const, title: 'ベーシック', desc: '月100回想定', price: '¥980/月' },
-    { key: 'pro' as const, title: 'プロ', desc: '月300回想定', price: '¥2,480/月' },
+    { key: 'light' as const, title: 'ライト', desc: '100回/月 フリマアプリ出品者、小規模ECショップ 透かし解除', price: '¥1,500/月' },
+    { key: 'basic' as const, title: 'ベーシック', desc: '500回/月　月間数百点の商品画像を扱う店舗（古着屋・雑貨屋）向け　透かし解除', price: '¥6,000/月' },
+    { key: 'pro' as const, title: 'プロ', desc: '1200回/月　中規模ブランド、複数店舗展開してる事業者向け　透かし解除', price: '¥14,000/月' },
   ];
   return (
     <div className="absolute right-0 top-full mt-2 w-56 rounded-lg border border-gray-200 bg-white shadow-lg z-50">
