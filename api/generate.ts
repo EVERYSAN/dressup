@@ -8,30 +8,97 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 // --- 実際の画像生成APIを呼ぶ場所 ---
 // すぐに動作確認できるよう、ECHO_GENERATE=true の時は
 // image1 をそのまま返すスモークテストにします。
-async function callImageEditAPI(params: {
+// これを /api/generate.ts の callImageEditAPI に上書きしてください
+async function callImageEditAPI({
+  prompt,
+  image1,
+  image2 = null,
+  temperature = 0.7,
+  seed = null,
+}: {
   prompt: string;
-  image1: string;             // dataURL (base64)
-  image2?: string | null;     // dataURL (base64)
+  image1: string;
+  image2?: string | null;
   temperature?: number;
   seed?: number | null;
 }): Promise<{ data: string; mimeType: string }> {
-  // 1) スモークテスト：入力画像をそのまま返す
+  // スモークモード：ECHO_GENERATE=true なら image1 をそのまま返す
   if (process.env.ECHO_GENERATE === 'true') {
-    // image1 は "data:<mime>;base64,<data>" 形式なので、取り出して返す
-    const [mimePart, dataPart] = params.image1.split(';base64,');
+    const [mimePart, dataPart] = image1.split(';base64,');
     const mimeType = mimePart.replace('data:', '') || 'image/png';
-    const data = dataPart || '';
-    return { data, mimeType };
+    return { data: dataPart || '', mimeType };
   }
 
-  // 2) ここに Gemini / ほかの画像編集API を実装
-  // 例:
-  // const out = await geminiEdit({ prompt: params.prompt, image1: params.image1, image2: params.image2, ... });
-  // return { data: out.base64, mimeType: out.mimeType || 'image/png' };
+  const API_KEY = process.env.GEMINI_API_KEY;
+  if (!API_KEY) throw new Error('GEMINI_API_KEY is not set');
 
-  // ひとまず安全側：1x1透明はもう返さない（真っ白問題の回避）
-  // 入力が無ければエラーにする
-  throw new Error('Image edit backend is not configured. Set ECHO_GENERATE=true for smoke test.');
+  // data URL を {mimeType, data} に分解
+  const parseDataUrl = (d: string) => {
+    const [mimePart, dataPart] = d.split(';base64,');
+    const mimeType = mimePart.replace('data:', '');
+    const data = dataPart;
+    return { mimeType, data };
+  };
+
+  const imgA = parseDataUrl(image1);
+  const imgB = image2 ? parseDataUrl(image2) : null;
+
+  // Gemini 2.5 Flash Image エンドポイント例（generateContent）
+  // ドキュメントの “inline_data” 形式を利用して画像＋テキストを送る
+  const reqBody: any = {
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { text: prompt },
+          { inline_data: { mime_type: imgA.mimeType, data: imgA.data } },
+        ],
+      },
+    ],
+    generationConfig: {
+      temperature,
+      ...(seed != null ? { seed } : {}),
+    },
+  };
+  if (imgB) {
+    reqBody.contents[0].parts.push({
+      inline_data: { mime_type: imgB.mimeType, data: imgB.data },
+    });
+  }
+
+  const resp = await fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-001:generateContent?key=' + API_KEY,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(reqBody),
+    }
+  );
+
+  if (!resp.ok) {
+    const t = await resp.text();
+    throw new Error(`Gemini API error ${resp.status}: ${t}`);
+  }
+
+  const json = await resp.json();
+
+  // 画像出力の取り出し（モデルの返し方により “inline_data” が parts に入る）
+  // 代表的なパターンを拾う実装
+  const candidates = json.candidates || [];
+  for (const c of candidates) {
+    const parts = c?.content?.parts || [];
+    for (const p of parts) {
+      // 画像が inline_data で返る場合
+      if (p.inline_data?.data) {
+        const mimeType = p.inline_data.mime_type || 'image/png';
+        const data = p.inline_data.data; // base64 without dataURL prefix
+        return { data, mimeType };
+      }
+      // テキストしか返ってこない場合（失敗扱いにしておく）
+    }
+  }
+
+  throw new Error('No image was returned from Gemini.');
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
