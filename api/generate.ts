@@ -1,26 +1,30 @@
 // api/generate.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-// 必須: Vercel の環境変数にセット済みの API キー
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
-const MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image-preview';
-// REST の正しいエンドポイント（Imagen ではなく generateContent）
-const ENDPOINT =
-  `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+/**
+ * 必要な環境変数（Vercel）
+ * - GEMINI_API_KEY               : 必須（AI Studio API Key）
+ * - GEMINI_IMAGE_MODEL (任意)    : 例) gemini-2.5-flash-image-preview（未設定ならこれを使用）
+ *
+ * 備考:
+ * - Images/Imagen 用の edit/generate エンドポイントは使用しません。
+ *   正しいのは Generative Language API の ":generateContent" です。
+ */
 
-// dataURL から base64 本体と mime を抽出
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
+const MODEL =
+  process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image-preview';
+const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+
+// "data:image/png;base64,...." を受けても素の base64 に変換 & MIME を取り出す
 function splitDataUrl(dataUrl: string): { mime: string; base64: string } {
-  // data:image/png;base64,xxxx
   const m = /^data:([^;]+);base64,(.*)$/i.exec(dataUrl || '');
-  if (!m) {
-    // すでに base64 素の文字列の場合は既定 png 扱い
-    return { mime: 'image/png', base64: dataUrl };
-  }
+  if (!m) return { mime: 'image/png', base64: dataUrl };
   return { mime: m[1], base64: m[2] };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS（必要なら）
+  // CORS（必要に応じて調整）
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type');
@@ -35,13 +39,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: 'Server error', detail: 'Missing GEMINI_API_KEY' });
     }
 
-    const {
-      prompt,
-      image1,      // dataURL か base64 文字列
-      image2,      // 任意: 2 枚目（リファレンス等）
-      temperature, // 任意
-    } = req.body || {};
-
+    const { prompt, image1, image2, temperature } = req.body || {};
     if (!prompt || !image1) {
       return res.status(400).json({ error: 'Bad Request', detail: 'prompt and image1 are required' });
     }
@@ -49,31 +47,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const p1 = splitDataUrl(image1);
     const p2 = image2 ? splitDataUrl(image2) : null;
 
-    // モデルに「画像を返して」と明示するとテキストのみ応答になる確率が下がります
-    const systemHint =
-      'Return the result as an image. Do not include any textual explanation in the response.';
+    // テキストではなく「画像として返す」ことを明示（REST では response_mime_type は使えないため、指示で誘導）
+    const systemText =
+      'You are an image editing model. Always return the result as an IMAGE (inlineData). ' +
+      'Do not include any textual explanation in the response parts.';
 
-    // REST の generateContent ボディ
+    // Generative Language API / generateContent のボディ
     const body = {
-      contents: [{
-        role: 'user',
-        parts: [
-          { text: `${systemHint}\n\n${prompt}` },
-          { inline_data: { mime_type: p1.mime, data: p1.base64 } },
-          ...(p2 ? [{ inline_data: { mime_type: p2.mime, data: p2.base64 } }] : []),
-        ],
-      }],
-      // 応答を画像で期待するヒント（SDK と同等の効果）
+      systemInstruction: {
+        role: 'system',
+        parts: [{ text: systemText }],
+      },
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: prompt },
+            { inline_data: { mime_type: p1.mime, data: p1.base64 } },
+            ...(p2 ? [{ inline_data: { mime_type: p2.mime, data: p2.base64 } }] : []),
+          ],
+        },
+      ],
       generationConfig: {
         temperature: typeof temperature === 'number' ? temperature : 0.7,
-        // これを指定すると画像パートを返しやすくなる
-        response_mime_type: 'image/png',
+        // NOTE: REST では response_mime_type はテキスト系のみ受理のため送らない
       },
     };
 
-    // 55 秒タイムアウト（Vercel の 60 秒上限対策）
+    // タイムアウト（Vercel 60s 上限対策）
     const ac = new AbortController();
-    const t = setTimeout(() => ac.abort(), 55_000);
+    const timeout = setTimeout(() => ac.abort(), 55_000);
 
     const resp = await fetch(ENDPOINT, {
       method: 'POST',
@@ -86,33 +89,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }).catch((e) => {
       throw new Error(`Fetch failed: ${String(e)}`);
     });
-    clearTimeout(t);
 
-    // 404, 403 等はそのまま詳細を返す
+    clearTimeout(timeout);
+
     if (!resp.ok) {
-      const text = await resp.text();
+      const text = await resp.text().catch(() => '');
       return res.status(500).json({ error: 'Images API error', detail: text });
     }
 
     const json = await resp.json();
 
-    // 公式サンプル通り: candidates[0].content.parts[*] を見て inlineData を探す
-    // https://ai.google.dev/gemini-api/docs/image-generation#rest
+    // 画像は candidates[0].content.parts[*].inlineData (or inline_data) に入る
     const candidates = json?.candidates || [];
     const parts = candidates[0]?.content?.parts || [];
 
     let imageBase64: string | null = null;
     let imageMime: string | null = null;
-    let textOut: string[] = [];
+    const textOut: string[] = [];
 
     for (const part of parts) {
+      // camelCase
       if (part?.inlineData?.data) {
         imageBase64 = part.inlineData.data;
         imageMime = part.inlineData.mimeType || 'image/png';
         break;
       }
+      // snake_case（環境差吸収の保険）
       if (part?.inline_data?.data) {
-        // 場合によっては snake_case で返る環境もあるため保険
         imageBase64 = part.inline_data.data;
         imageMime = part.inline_data.mime_type || 'image/png';
         break;
@@ -121,7 +124,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (!imageBase64) {
-      // 画像が返らなかったケースを可視化（あなたが見た “No image in response” がこれ）
       return res.status(500).json({
         error: 'No image in response',
         text: textOut.join('\n'),
