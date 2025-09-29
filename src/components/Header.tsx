@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { HelpCircle, LogIn, LogOut, Wallet, ChevronDown } from 'lucide-react';
-import { InfoModal } from './InfoModal';
+import React, { useEffect, useState } from 'react';
+import { HelpCircle, LogIn, LogOut, Wallet } from 'lucide-react';
+import PricingDialog from './PricingDialog';              // ← デフォルトimport（モーダル）
 import { buy, openPortal } from '../lib/billing';
 import { supabase } from '../lib/supabaseClient';
 
@@ -19,49 +19,12 @@ function MiniBtn(
   );
 }
 
-function PlanMenu({ onPick }: { onPick: (p: 'light' | 'basic' | 'pro') => void }) {
-  const items = [
-    { key: 'light' as const, title: 'ライト', desc: '月50回想定', price: '¥480/月' },
-    { key: 'basic' as const, title: 'ベーシック', desc: '月100回想定', price: '¥980/月' },
-    { key: 'pro' as const, title: 'プロ', desc: '月300回想定', price: '¥2,480/月' },
-  ];
-  return (
-    <div className="absolute right-0 top-full mt-2 w-56 rounded-lg border border-gray-200 bg-white shadow-lg z-50">
-      <div className="py-1">
-        {items.map((it) => (
-          <button
-            key={it.key}
-            onClick={() => onPick(it.key)}
-            className="w-full text-left px-3 py-2 hover:bg-gray-50"
-          >
-            <div className="flex items-center justify-between">
-              <div className="font-medium">{it.title}</div>
-              <div className="text-xs text-gray-500">{it.price}</div>
-            </div>
-            <div className="text-xs text-gray-500">{it.desc}</div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export const Header: React.FC = () => {
   const [showInfoModal, setShowInfoModal] = useState(false);
+  const [showPricing, setShowPricing] = useState(false);  // ← モーダル開閉
   const [isAuthed, setIsAuthed] = useState(false);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      if (!menuRef.current) return;
-      if (!menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    window.addEventListener('click', onClick);
-    return () => window.removeEventListener('click', onClick);
-  }, []);
 
   const refreshCredits = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -75,7 +38,7 @@ export const Header: React.FC = () => {
     const { data, error } = await supabase
       .from('users')
       .select('credits_total, credits_used')
-      .eq('id', uid)
+      .eq('id', uid)                                  // ← すでに id カラムで運用中
       .single();
     if (!error && data) {
       setRemaining((data.credits_total ?? 0) - (data.credits_used ?? 0));
@@ -99,6 +62,7 @@ export const Header: React.FC = () => {
       setLoading(false);
     }
   };
+
   const signOut = async () => {
     setLoading(true);
     try {
@@ -110,15 +74,16 @@ export const Header: React.FC = () => {
     }
   };
 
-  const pickPlan = (plan: 'light' | 'basic' | 'pro') => {
-    setMenuOpen(false);
-    buy(plan);
+  // PricingDialog 内の「申し込む」ボタンから呼ばれる
+  const handleBuy = (plan: 'light' | 'basic' | 'pro') => {
+    setShowPricing(false);
+    buy(plan); // API→Stripe Checkout（フロントでBearer付与済み）
   };
 
   return (
     <>
       <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-        {/* 左：タイトル（黒バッジ版） */}
+        {/* 左：タイトル（黒バッジ版に戻す） */}
         <div className="flex items-center space-x-4">
           <h1 className="text-xl font-semibold text-black hidden md:block">
             DRESSUP | AI画像編集ツール
@@ -127,27 +92,21 @@ export const Header: React.FC = () => {
           <div className="text-xs text-gray-500 bg-gray-800 text-white px-2 py-1 rounded">1.0</div>
         </div>
 
-        {/* 右：購入/残数/支払い/認証/ヘルプ */}
+        {/* 右：残数/購入/支払い/認証/ヘルプ */}
         <div className="flex items-center gap-8">
-          <div className="flex items-center gap-2 relative" ref={menuRef}>
+          <div className="flex items-center gap-2">
             {isAuthed ? (
               <>
                 <span className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1 text-sm">
                   残り {remaining ?? '-'} 回
                 </span>
 
-                <MiniBtn
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setMenuOpen((v) => !v);
-                  }}
-                  icon={<ChevronDown size={16} />}
-                >
+                {/* プラン購入 → PricingDialog を開く */}
+                <MiniBtn onClick={() => setShowPricing(true)}>
                   プラン購入
                 </MiniBtn>
-                {menuOpen && <PlanMenu onPick={pickPlan} />}
 
-                {/* ←ここがビルドエラーの箇所。修正済み */}
+                {/* Stripe Customer Portal */}
                 <MiniBtn onClick={openPortal} icon={<Wallet size={16} />}>
                   支払い設定
                 </MiniBtn>
@@ -173,7 +132,18 @@ export const Header: React.FC = () => {
         </div>
       </header>
 
-      <InfoModal open={showInfoModal} onOpenChange={setShowInfoModal} />
+      {/* 料金モーダル（幅広・カード3枚のやつ） */}
+      <PricingDialog
+        open={showPricing}
+        onOpenChange={setShowPricing}
+        onSelectPlan={handleBuy}
+      />
+
+      {/* 既存のヘルプモーダル */}
+      {/* InfoModal は既存実装をそのまま使ってください */}
+      {/* <InfoModal open={showInfoModal} onOpenChange={setShowInfoModal} /> */}
     </>
   );
 };
+
+export default Header;
