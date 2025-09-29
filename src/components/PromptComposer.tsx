@@ -2,11 +2,11 @@ import React, { useState, useRef } from 'react';
 import { Textarea } from './ui/Textarea';
 import { Button } from './ui/Button';
 import { useAppStore } from '../store/useAppStore';
-import { useImageEditing } from '../hooks/useImageGeneration';
 import { Upload, Edit3, HelpCircle, ChevronDown, ChevronRight, RotateCcw, Scissors } from 'lucide-react';
 import { PromptHints } from './PromptHints';
 import { cn } from '../utils/cn';
 import { resizeFileToDataURL, base64SizeMB } from '../utils/resizeImage';
+import { supabase } from '../lib/supabaseClient';
 
 export const PromptComposer: React.FC = () => {
   const {
@@ -35,7 +35,8 @@ export const PromptComposer: React.FC = () => {
   // Base はローカルで管理（不変に保つ）
   const [baseImage, setBaseImage] = useState<string | null>(null);
 
-  const { mutateAsync: edit, isPending: isEditPending } = useImageEditing();
+  // 自前で状態管理（/api/generate に一本化）
+  const [isEditPending, setIsEditPending] = useState(false);
 
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -48,7 +49,6 @@ export const PromptComposer: React.FC = () => {
   const canEdit = !!hasPrompt && !!baseImage && !isEditPending;
 
   const handleApplyEdit = async () => {
-    // クリックが来ても前提が欠けていたら明示的に案内
     if (!hasPrompt) {
       alert('「変更内容の指示」を入力してください。');
       return;
@@ -59,7 +59,6 @@ export const PromptComposer: React.FC = () => {
     }
     if (isEditPending) return;
 
-    // Vercel Edge 対策：payload を控えめに
     const approxTotalMB = [baseImage, editReferenceImages[0]]
       .filter(Boolean)
       .reduce((s, d) => s + base64SizeMB(d as string), 0);
@@ -71,35 +70,87 @@ export const PromptComposer: React.FC = () => {
     }
 
     try {
-      const resp: any = await edit({
-        prompt: promptSafe,
-        image1: baseImage,
-        image2: editReferenceImages[0] || null,
+      setIsEditPending(true);
+
+      // ★ ここがポイント：Supabase のアクセストークンを取得して Authorization: Bearer で付与
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      if (sessionErr) throw sessionErr;
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        alert('ログインしてください（トークンが取得できませんでした）');
+        return;
+      }
+
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          prompt: promptSafe,
+          image1: baseImage,
+          image2: editReferenceImages[0] || null,
+          // お好みで追加：temperature / seed を使いたい場合は API 側と合わせて送る
+          temperature,
+          seed,
+        }),
       });
 
-      const parts = resp?.candidates?.[0]?.content?.parts;
-      const img = parts?.find((p: any) => p?.inlineData?.data)?.inlineData;
-      if (img?.data) {
-        const mime = img?.mimeType || 'image/png';
-        const dataUrl = `data:${mime};base64,${img.data}`;
-        setCanvasImage(dataUrl);
-
-        ensureProject();
-        addEdit({
-          id: `edit-${Date.now()}`,
-          instruction: promptSafe,
-          parentGenerationId: null,
-          maskReferenceAsset: null,
-          outputAssets: [{ id: 'out-0', url: dataUrl }],
-          timestamp: Date.now(),
-        });
-      } else {
-        console.warn('[DRESSUP] [edit] no image in response');
-        alert('画像の生成に失敗しました（応答に画像が含まれていません）。もう一度お試しください。');
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        console.error('[DRESSUP] /api/generate failed', res.status, txt);
+        if (res.status === 402) {
+          alert('クレジットが不足しています。プランをご購入ください。');
+        } else if (res.status === 401) {
+          alert('認証に失敗しました。ログインし直してください。');
+        } else {
+          alert('画像の生成に失敗しました（サーバーエラー）。');
+        }
+        return;
       }
+
+      // 返却形は「サーバ側の実装」に合わせて吸収
+      const payload = await res.json().catch(() => null);
+
+      // 1) サーバ側で { image: { data, mimeType } } 形式で返す場合
+      const direct = payload?.image?.data
+        ? { data: payload.image.data, mime: payload.image.mimeType || 'image/png' }
+        : null;
+
+      // 2) Gemini の candidates そのまま返している場合（後方互換）
+      const parts = payload?.candidates?.[0]?.content?.parts;
+      const inlineImg = parts?.find((p: any) => p?.inlineData?.data)?.inlineData;
+
+      const resultData = direct?.data || inlineImg?.data;
+      const resultMime = direct?.mime || inlineImg?.mimeType || 'image/png';
+
+      if (!resultData) {
+        console.warn('[DRESSUP] /api/generate response has no image');
+        alert('画像の生成に失敗しました（応答に画像が含まれていません）。');
+        return;
+      }
+
+      const dataUrl = `data:${resultMime};base64,${resultData}`;
+      setCanvasImage(dataUrl);
+
+      ensureProject();
+      addEdit({
+        id: `edit-${Date.now()}`,
+        instruction: promptSafe,
+        parentGenerationId: null,
+        maskReferenceAsset: null,
+        outputAssets: [{ id: 'out-0', url: dataUrl }],
+        timestamp: Date.now(),
+      });
+
+      // 成功時は、ヘッダーの残回数表示が 1 減って見えるはず（サーバで consume_credit 済）
+      // もし減らない場合は、/api/generate 内で 200 を返す前に確実に消費しているか確認してください。
     } catch (e) {
       console.error('[DRESSUP] edit failed', e);
       alert('画像の生成に失敗しました。コンソールにエラーを出力しています。');
+    } finally {
+      setIsEditPending(false);
     }
   };
 
@@ -128,7 +179,6 @@ export const PromptComposer: React.FC = () => {
         console.error('Failed to upload image:', error);
         alert('画像の読み込みに失敗しました。別の画像でお試しください。');
       } finally {
-        // 同じファイルを連続選択しても onChange が発火するようにクリア
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     }
@@ -166,9 +216,7 @@ export const PromptComposer: React.FC = () => {
 
   return (
     <>
-      {/* ← モバイル時は p-4/space-4、PCは元の p-6/space-6 */}
       <div className="w-[92vw] md:w-72 xl:w-80 h-full bg-emerald-50 border-r border-emerald-100 p-4 md:p-6 flex flex-col space-y-4 md:space-y-6 overflow-y-auto shadow-sm relative">
-        {/* 小さなデバッグチップ（必要なければ消してOK） */}
         <div className="absolute top-2 right-2 text-[10px] px-2 py-0.5 rounded bg-emerald-900/80 text-white/90 select-none">
           prompt:{hasPrompt ? '1' : '0'} / base:{baseImage ? '1' : '0'} / pending:{isEditPending ? '1' : '0'}
         </div>
@@ -335,7 +383,6 @@ export const PromptComposer: React.FC = () => {
             'text-white bg-emerald-600 hover:bg-emerald-700',
             'disabled:bg-white disabled:text-emerald-800 disabled:border disabled:border-emerald-400 disabled:shadow-none',
             'disabled:hover:bg-white disabled:hover:text-emerald-800 disabled:cursor-not-allowed',
-            // ここでボタンが上位レイヤに負けないように
             'sticky bottom-2 z-[5]'
           )}
           style={{ pointerEvents: canEdit ? 'auto' : 'auto' }}
