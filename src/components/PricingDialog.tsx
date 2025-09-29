@@ -1,4 +1,3 @@
-// src/components/PricingDialog.tsx
 import React from 'react';
 import { Check } from 'lucide-react';
 
@@ -6,15 +5,14 @@ type PlanKey = 'light' | 'basic' | 'pro';
 
 type Props = {
   open: boolean;
-  onClose: () => void;                 // ← onOpenChange を onClose に統一
-  onSelect: (plan: PlanKey) => void;   // ← Header から buy(plan) を呼んでもらう
+  onClose: () => void;
+  onSelect: (plan: PlanKey) => void;
 };
 
-// 表示用のプラン定義（必要に応じて書き換えてOK）
 const PLANS: {
   key: PlanKey;
   name: string;
-  priceLabel: string;   // "¥1,500/月" など
+  priceLabel: string;
   blurb?: string;
   bullets: string[];
   cta?: string;
