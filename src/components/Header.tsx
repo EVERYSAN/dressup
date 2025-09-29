@@ -1,15 +1,15 @@
+// src/components/Header.tsx
 import React, { useCallback, useMemo, useState } from 'react';
 import { LogOut, Wallet } from 'lucide-react';
-import PricingDialogDefault, { PricingDialog as PricingDialogNamed } from './PricingDialog';
+import PricingDialog from './PricingDialog'; // ← default import に統一
 import { supabase } from '../lib/supabaseClient';
 import { openPortal, buy } from '../lib/billing';
-// useAppStore のエクスポート形に合わせてここを変える
-//   - named export なら:   import { useAppStore } from '../store/useAppStore';
-//   - default export なら: import useAppStore from '../store/useAppStore';
-import { useAppStore } from '../store/useAppStore';
+import { useAppStore } from '../store/useAppStore'; // ← あなたの実パスに合わせて
 
-// ---- 実行時ガード（import の食い違いを潰す）----
-function guardElementType<T extends object>(Comp: any, name: string): React.ComponentType<any> {
+type PlanKey = 'light' | 'basic' | 'pro';
+
+// 安全ガード：もし誤って undefined を JSX に渡しても落ちないように
+function guardElementType(Comp: any, name: string): React.ComponentType<any> {
   const ok =
     Comp &&
     (typeof Comp === 'function' ||
@@ -21,7 +21,7 @@ function guardElementType<T extends object>(Comp: any, name: string): React.Comp
   return Comp as React.ComponentType<any>;
 }
 
-const PricingDialog = guardElementType(PricingDialogDefault ?? PricingDialogNamed, 'PricingDialog');
+const SafePricingDialog = guardElementType(PricingDialog, 'PricingDialog');
 
 function HeaderImpl() {
   const [pricingOpen, setPricingOpen] = useState(false);
@@ -29,14 +29,14 @@ function HeaderImpl() {
 
   const remaining = useMemo(() => {
     const total = user?.credits_total ?? 0;
-    const used  = user?.credits_used  ?? 0;
+    const used = user?.credits_used ?? 0;
     return Math.max(0, total - used);
   }, [user]);
 
-  const handleOpenPricing  = useCallback(() => setPricingOpen(true), []);
+  const handleOpenPricing = useCallback(() => setPricingOpen(true), []);
   const handleClosePricing = useCallback(() => setPricingOpen(false), []);
 
-  const handleSelectPlan = useCallback(async (plan: 'light' | 'basic' | 'pro') => {
+  const handleSelectPlan = useCallback(async (plan: PlanKey) => {
     try {
       await buy(plan);
       setPricingOpen(false);
@@ -102,10 +102,15 @@ function HeaderImpl() {
         </button>
       </div>
 
-      <PricingDialog open={pricingOpen} onClose={handleClosePricing} onSelect={handleSelectPlan} />
+      <SafePricingDialog
+        open={pricingOpen}
+        onClose={handleClosePricing}
+        onSelect={handleSelectPlan}
+      />
     </header>
   );
 }
 
+// App.tsx が { Header } で読み込んでも、default で読んでも動くよう両方出す
 export const Header = HeaderImpl;
 export default HeaderImpl;
