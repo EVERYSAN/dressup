@@ -1,116 +1,87 @@
 // api/generate.ts
-// 毎回の生成前に Supabase の RPC `consume_credit` を呼び出して残回数を減らす。
-// 残りがない場合は 402 を返してフロントにアラートさせる。
-
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
-// ====== 必須：環境変数 ======
-// - SUPABASE_URL
-// - SUPABASE_SERVICE_ROLE_KEY  （Service role key）
 const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-// Admin クライアント（service role）
-const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
-});
-
-// CORS（必要ならドメイン合わせて調整）
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
-
-// ユーザー取得（フロントから Authorization: Bearer <accessToken> を渡す）
-async function getUserFromRequest(req: Request) {
-  const auth = req.headers.get('authorization');
-  if (!auth?.startsWith('Bearer ')) return null;
-  const token = auth.slice(7);
-  const { data, error } = await admin.auth.getUser(token);
-  if (error || !data?.user) return null;
-  return data.user;
+// 画像生成の擬似関数（ここをあなたの Gemini / 外部API 呼び出しに差し替え）
+async function callImageEditAPI({
+  prompt, image1, image2, temperature, seed,
+}: { prompt: string; image1: string; image2?: string | null; temperature?: number; seed?: number | null; }) {
+  // 必ず 40〜60 秒以内に終わらせるか、タイムアウト制御を入れること
+  // ここではダミーの透明 1x1 PNG を返します
+  const dummyBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
+  return { data: dummyBase64, mimeType: 'image/png' };
 }
 
-export async function OPTIONS() {
-  return new Response(null, { headers: corsHeaders });
-}
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // CORS（必要なら）
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type');
+    return res.status(204).end();
+  }
 
-export default async function handler(req: Request): Promise<Response> {
   try {
     if (req.method !== 'POST') {
-      return new Response('Method Not Allowed', {
-        status: 405,
-        headers: corsHeaders,
-      });
+      return res.status(405).json({ error: 'Method Not Allowed' });
     }
 
-    // 1) ユーザーを特定（フロントは Authorization ヘッダに access_token を付ける）
-    const user = await getUserFromRequest(req);
-    if (!user) {
-      return new Response(JSON.stringify({ message: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    // 1) Authorization からユーザー特定
+    const auth = req.headers.authorization || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (!token) {
+      return res.status(401).json({ error: 'Missing bearer token' });
     }
 
-    const userId = user.id;
-
-    // 2) まずクレジット消費（残りがない場合は false が返る）
-    const { data: ok, error: rpcError } = await admin.rpc('consume_credit', {
-      p_user_id: userId, // 関数側の引数名と一致させる！
+    const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+      auth: { persistSession: false },
     });
 
-    if (rpcError) {
-      console.error('consume_credit RPC error:', rpcError);
-      return new Response(
-        JSON.stringify({ message: 'Credit check failed' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    const { data: userInfo, error: userErr } = await supabaseAdmin.auth.getUser(token);
+    if (userErr || !userInfo?.user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+    const userId = userInfo.user.id;
+
+    // 2) 在庫チェック（DB の users 残回数 = credits_total - credits_used）
+    const { data: row, error: selErr } = await supabaseAdmin
+      .from('users')
+      .select('credits_total, credits_used')
+      .eq('uuid', userId)
+      .single();
+
+    if (selErr || !row) {
+      return res.status(500).json({ error: 'User row not found' });
+    }
+    const remaining = (row.credits_total ?? 0) - (row.credits_used ?? 0);
+    if (remaining <= 0) {
+      return res.status(402).json({ error: 'No credits' }); // フロントで「プラン購入」誘導
     }
 
-    if (ok !== true) {
-      // クレジット残なし
-      return new Response(
-        JSON.stringify({ message: 'No credits left' }),
-        { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    // 3) まず消費してから生成（二重実行に強い）
+    const { error: rpcErr } = await supabaseAdmin.rpc('consume_credit', { p_user_id: userId });
+    if (rpcErr) {
+      // 競合や RLS で失敗したら 409（もう一度押してもらう）
+      return res.status(409).json({ error: 'Consume failed', detail: rpcErr.message });
     }
 
-    // 3) ここからが実際の生成処理
-    //    例：Gemini / OpenAI / 自前の画像生成… など
-    //    ここではダミー応答（本番は実処理を追加）
-    const body = await req.json().catch(() => ({}));
-    const prompt = body?.prompt ?? '';
-
-    // TODO: 実際の生成処理に置き換え（例）
-    // const result = await generateImage(prompt);
-
-    // 4) 任意：usage_log に詳細ログを残したい場合
-    try {
-      await admin.from('usage_log').insert({
-        user_id: userId,
-        action: 'generate',
-        meta: { prompt },
-      });
-    } catch (e) {
-      // ログは失敗しても処理を止めない
-      console.warn('usage_log insert warn:', e);
+    // 4) 画像生成
+    const { prompt, image1, image2 = null, temperature = 0.7, seed = null } = req.body || {};
+    if (!prompt || !image1) {
+      return res.status(400).json({ error: 'Missing prompt or image1' });
     }
 
-    // 5) 成功レスポンス
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        // result, // ← 生成結果を返すなら添える
-      }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  } catch (err) {
-    console.error(err);
-    return new Response(
-      JSON.stringify({ message: 'Server Error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    const result = await callImageEditAPI({ prompt, image1, image2, temperature, seed });
+
+    // 5) 常に JSON を返す（フロントが確実に finally に到達できるように）
+    return res.status(200).json({
+      image: { data: result.data, mimeType: result.mimeType },
+    });
+  } catch (e: any) {
+    // 例外時も JSON を返す
+    return res.status(500).json({ error: 'Server error', detail: String(e?.message || e) });
   }
 }
