@@ -1,19 +1,58 @@
+// src/App.tsx  — 完全版（セッション復元付き）
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cn } from './utils/cn';
-import {Header}  from './components/Header';
+import { Header } from './components/Header';
 import { PromptComposer } from './components/PromptComposer';
 import { ImageCanvas } from './components/ImageCanvas';
 import { HistoryPanel } from './components/HistoryPanel';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAppStore } from './store/useAppStore';
+import { supabase } from './lib/supabaseClient';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 5 * 60 * 1000, retry: 2 } },
 });
 
+// --- 追加: OAuth リダイレクト(#access_token 等)からセッションを復元 ---
+function useRestoreSupabaseSessionFromHash() {
+  React.useEffect(() => {
+    // 例: #access_token=xxx&refresh_token=yyy&expires_in=3600&token_type=bearer
+    if (typeof window === 'undefined') return;
+    if (!location.hash || location.hash.length < 2) return;
+
+    const params = new URLSearchParams(location.hash.slice(1));
+    const access_token = params.get('access_token');
+    const refresh_token = params.get('refresh_token');
+
+    // どちらかが無ければ何もしない（他用途のハッシュかもしれない）
+    if (!access_token || !refresh_token) return;
+
+    (async () => {
+      try {
+        const { data, error } = await supabase.auth.setSession({
+          access_token,
+          refresh_token,
+        });
+        if (error) {
+          console.error('[auth] setSession error', error);
+          return;
+        }
+        // 成功したら URL をクリーンアップ（ハッシュ除去）
+        history.replaceState(null, '', location.pathname + location.search);
+        // 念のため最新ユーザーを取得しておく
+        await supabase.auth.getUser();
+        console.log('[auth] session restored from URL hash', data?.session?.user?.id);
+      } catch (e) {
+        console.error('[auth] restore from hash failed', e);
+      }
+    })();
+  }, []);
+}
+
 function AppContent() {
   useKeyboardShortcuts();
+  useRestoreSupabaseSessionFromHash();
 
   const {
     showPromptPanel, setShowPromptPanel,
@@ -49,7 +88,7 @@ function AppContent() {
             {showPromptPanel && <div className="mobile-backdrop md:hidden" onClick={closeAllOverlays} />}
             <div
               className={cn(
-                "md:static md:h-full md:overflow-y-auto md:block",
+                "md:static md:h满 md:overflow-y-auto md:block",
                 showPromptPanel ? "block" : "hidden",
                 "mobile-overlay mobile-overlay--left md:mobile-overlay:unset md:w-auto md:bg-transparent"
               )}
