@@ -1,27 +1,37 @@
 // src/components/Header.tsx
 import React, { useCallback, useMemo, useState } from 'react';
 import { LogOut, Wallet } from 'lucide-react';
-import PricingDialog from './PricingDialog';           // ← default import
+import PricingDialog from './PricingDialog';           // ← default import（統一）
 import { supabase } from '../lib/supabaseClient';
-import { openPortal } from '../lib/billing';
-import { useAppStore } from '../store/useAppStore';
+import { openPortal, buy } from '../lib/billing';      // ← プラン購入はここで実行
+import { useAppStore } from '../store/useAppStore';    // ← named import
 
 export function Header() {
   const [pricingOpen, setPricingOpen] = useState(false);
 
+  // 残回数は store の users テーブル相当の値から算出
   const { user } = useAppStore((s) => ({ user: s.user }));
   const remaining = useMemo(() => {
     const total = user?.credits_total ?? 0;
-    const used = user?.credits_used ?? 0;
+    const used  = user?.credits_used  ?? 0;
     return Math.max(0, total - used);
   }, [user]);
 
-  const handleOpenPricing = useCallback(() => setPricingOpen(true), []);
+  const handleOpenPricing  = useCallback(() => setPricingOpen(true), []);
   const handleClosePricing = useCallback(() => setPricingOpen(false), []);
+
+  const handleSelectPlan = useCallback(async (plan: 'light' | 'basic' | 'pro') => {
+    try {
+      await buy(plan);         // ← サーバーの create-checkout を叩く
+      setPricingOpen(false);   // 成功したらモーダルを閉じる
+    } catch (e: any) {
+      alert(`購入フローを開始できませんでした:\n${e?.message ?? e}`);
+    }
+  }, []);
 
   const handleOpenPortal = useCallback(async () => {
     try {
-      await openPortal();
+      await openPortal();      // ← Stripe カスタマーポータル
     } catch (e: any) {
       alert(`支払い設定ページに進めませんでした:\n${e?.message ?? e}`);
     }
@@ -38,13 +48,16 @@ export function Header() {
 
   return (
     <header className="flex items-center justify-between gap-3 px-4 py-3">
+      {/* 左：残回数 */}
       <div className="flex items-center gap-2">
         <span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">
           残り {remaining} 回
         </span>
       </div>
 
+      {/* 右：操作ボタン群 */}
       <div className="flex items-center gap-2">
+        {/* プラン購入（モーダルを開く） */}
         <button
           type="button"
           onClick={handleOpenPricing}
@@ -53,6 +66,7 @@ export function Header() {
           プラン購入
         </button>
 
+        {/* 支払い設定（Stripe カスタマーポータル） */}
         <button
           type="button"
           onClick={handleOpenPortal}
@@ -63,6 +77,7 @@ export function Header() {
           <span>支払い設定</span>
         </button>
 
+        {/* ログアウト */}
         <button
           type="button"
           onClick={handleLogout}
@@ -73,7 +88,12 @@ export function Header() {
         </button>
       </div>
 
-      <PricingDialog open={pricingOpen} onClose={handleClosePricing} />
+      {/* プライシングのモーダル */}
+      <PricingDialog
+        open={pricingOpen}
+        onClose={handleClosePricing}
+        onSelect={handleSelectPlan}
+      />
     </header>
   );
 }
