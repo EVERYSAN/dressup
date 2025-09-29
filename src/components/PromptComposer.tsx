@@ -478,6 +478,3 @@ export const PromptComposer: React.FC = () => {
     </>
   );
 };
-
-export const PromptComposer = PromptComposerImpl;
-export default PromptComposerImpl;
