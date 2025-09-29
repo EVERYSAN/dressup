@@ -1,9 +1,7 @@
-// src/components/Header.tsx
 import React, { useEffect, useRef, useState } from 'react';
 import { HelpCircle, LogIn, LogOut, Wallet, ChevronDown } from 'lucide-react';
 import { InfoModal } from './InfoModal';
-import { buy } from '../lib/billing';
-import { openPortal } from '../lib/billing';
+import { buy, openPortal } from '../lib/billing';
 import { supabase } from '../lib/supabaseClient';
 
 function MiniBtn(
@@ -21,15 +19,11 @@ function MiniBtn(
   );
 }
 
-function PlanMenu({
-  onPick,
-}: {
-  onPick: (plan: 'light' | 'basic' | 'pro') => void;
-}) {
+function PlanMenu({ onPick }: { onPick: (p: 'light' | 'basic' | 'pro') => void }) {
   const items = [
-    { key: 'light' as const, title: 'ライト', desc: '月50回想定',  price: '¥480/月'  },
-    { key: 'basic' as const, title: 'ベーシック', desc: '月100回想定', price: '¥980/月'  },
-    { key: 'pro'   as const, title: 'プロ',     desc: '月300回想定', price: '¥2,480/月' },
+    { key: 'light' as const, title: 'ライト', desc: '月50回想定', price: '¥480/月' },
+    { key: 'basic' as const, title: 'ベーシック', desc: '月100回想定', price: '¥980/月' },
+    { key: 'pro' as const, title: 'プロ', desc: '月300回想定', price: '¥2,480/月' },
   ];
   return (
     <div className="absolute right-0 top-full mt-2 w-56 rounded-lg border border-gray-200 bg-white shadow-lg z-50">
@@ -57,9 +51,9 @@ export const Header: React.FC = () => {
   const [isAuthed, setIsAuthed] = useState(false);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
-
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       if (!menuRef.current) return;
@@ -90,9 +84,7 @@ export const Header: React.FC = () => {
 
   useEffect(() => {
     refreshCredits();
-    const { data: sub } = supabase.auth.onAuthStateChange(() => {
-      refreshCredits();
-    });
+    const { data: sub } = supabase.auth.onAuthStateChange(() => refreshCredits());
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -155,7 +147,8 @@ export const Header: React.FC = () => {
                 </MiniBtn>
                 {menuOpen && <PlanMenu onPick={pickPlan} />}
 
-                <MiniBtn onClick={openPortal} icon={<Wallet size={16 />}>
+                {/* ←ここがビルドエラーの箇所。修正済み */}
+                <MiniBtn onClick={openPortal} icon={<Wallet size={16} />}>
                   支払い設定
                 </MiniBtn>
 
