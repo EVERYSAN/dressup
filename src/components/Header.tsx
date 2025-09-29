@@ -1,10 +1,10 @@
 // src/components/Header.tsx
 import React, { useCallback, useMemo, useState } from 'react';
 import { LogOut, Wallet } from 'lucide-react';
-import PricingDialog from './PricingDialog';
+import { PricingDialog } from './PricingDialog';   // ← named import に変更
 import { supabase } from '../lib/supabaseClient';
 import { openPortal } from '../lib/billing';
-import {useAppStore} from '../store/useAppStore';
+import { useAppStore } from '../store/useAppStore'; // ← named import
 
 /**
  * ヘッダー
@@ -17,7 +17,7 @@ export function Header() {
   const [pricingOpen, setPricingOpen] = useState(false);
 
   // 残回数は store の users テーブル相当の値から算出
-  const { user } = useAppStore((s) => ({ user: s.user }));
+  const user = useAppStore((s) => s.user);
   const remaining = useMemo(() => {
     const total = user?.credits_total ?? 0;
     const used = user?.credits_used ?? 0;
@@ -29,7 +29,7 @@ export function Header() {
 
   const handleOpenPortal = useCallback(async () => {
     try {
-      await openPortal(); // 失敗時は内部で throw
+      await openPortal();
     } catch (e: any) {
       alert(`支払い設定ページに進めませんでした:\n${e?.message ?? e}`);
     }
@@ -38,7 +38,6 @@ export function Header() {
   const handleLogout = useCallback(async () => {
     try {
       await supabase.auth.signOut();
-      // ページをリロードしてセッション反映
       location.reload();
     } catch (e: any) {
       alert(`ログアウトに失敗しました:\n${e?.message ?? e}`);
@@ -56,7 +55,6 @@ export function Header() {
 
       {/* 右：操作ボタン群 */}
       <div className="flex items-center gap-2">
-        {/* プラン購入 → PricingDialog を開く */}
         <button
           type="button"
           onClick={handleOpenPricing}
@@ -65,7 +63,6 @@ export function Header() {
           <span>プラン購入</span>
         </button>
 
-        {/* 支払い設定（Stripe カスタマーポータル） */}
         <button
           type="button"
           onClick={handleOpenPortal}
@@ -76,7 +73,6 @@ export function Header() {
           <span>支払い設定</span>
         </button>
 
-        {/* ログアウト */}
         <button
           type="button"
           onClick={handleLogout}
