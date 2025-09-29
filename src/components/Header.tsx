@@ -1,11 +1,12 @@
 // src/components/Header.tsx
-import React, { useEffect, useRef, useState } from 'react';
-import { HelpCircle, LogIn, LogOut, Wallet, ChevronDown } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { HelpCircle, LogIn, LogOut, Wallet } from 'lucide-react';
 import { InfoModal } from './InfoModal';
-import { buy } from '../lib/billing';
-import { openPortal } from '../lib/billing';
+import { openPortal, buy } from '../lib/billing';
 import { supabase } from '../lib/supabaseClient';
+import PricingDialog from './PricingDialog'; // ← 料金表モーダル（default export 前提）
 
+/** 小さめの汎用ボタン */
 function MiniBtn(
   props: React.ButtonHTMLAttributes<HTMLButtonElement> & { icon?: React.ReactNode }
 ) {
@@ -21,56 +22,15 @@ function MiniBtn(
   );
 }
 
-function PlanMenu({
-  onPick,
-}: {
-  onPick: (plan: 'light' | 'basic' | 'pro') => void;
-}) {
-  // 価格やクレジット目安はUI表示用（Stripeの金額と必ず合わせる）
-  const items = [
-    { key: 'light' as const, title: 'ライト', desc: '月50回想定', price: '¥480/月' },
-    { key: 'basic' as const, title: 'ベーシック', desc: '月100回想定', price: '¥980/月' },
-    { key: 'pro' as const, title: 'プロ', desc: '月300回想定', price: '¥2,480/月' },
-  ];
-  return (
-    <div className="absolute right-0 top-full mt-2 w-56 rounded-lg border border-gray-200 bg-white shadow-lg z-50">
-      <div className="py-1">
-        {items.map((it) => (
-          <button
-            key={it.key}
-            onClick={() => onPick(it.key)}
-            className="w-full text-left px-3 py-2 hover:bg-gray-50"
-          >
-            <div className="flex items-center justify-between">
-              <div className="font-medium">{it.title}</div>
-              <div className="text-xs text-gray-500">{it.price}</div>
-            </div>
-            <div className="text-xs text-gray-500">{it.desc}</div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export const Header: React.FC = () => {
   const [showInfoModal, setShowInfoModal] = useState(false);
+  const [openPricing, setOpenPricing] = useState(false);
+
   const [isAuthed, setIsAuthed] = useState(false);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // プランメニュー
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      if (!menuRef.current) return;
-      if (!menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    window.addEventListener('click', onClick);
-    return () => window.removeEventListener('click', onClick);
-  }, []);
-
+  // 残回数を Supabase から取得
   const refreshCredits = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     const uid = session?.user?.id;
@@ -83,7 +43,7 @@ export const Header: React.FC = () => {
     const { data, error } = await supabase
       .from('users')
       .select('credits_total, credits_used')
-      .eq('id', uid)
+      .eq('id', uid) // 既存スキーマに合わせる
       .single();
     if (!error && data) {
       setRemaining((data.credits_total ?? 0) - (data.credits_used ?? 0));
@@ -92,12 +52,11 @@ export const Header: React.FC = () => {
 
   useEffect(() => {
     refreshCredits();
-    const { data: sub } = supabase.auth.onAuthStateChange(() => {
-      refreshCredits();
-    });
+    const { data: sub } = supabase.auth.onAuthStateChange(() => refreshCredits());
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  // 認証
   const signIn = async () => {
     setLoading(true);
     try {
@@ -115,20 +74,36 @@ export const Header: React.FC = () => {
       await supabase.auth.signOut();
       setIsAuthed(false);
       setRemaining(null);
+      // location.reload(); // 必要ならリロード
     } finally {
       setLoading(false);
     }
   };
 
-  const pickPlan = (plan: 'light' | 'basic' | 'pro') => {
-    setMenuOpen(false);
-    buy(plan); // → Stripe Checkout へ
+  // 料金表内の「申し込む」ボタンから呼ばれる
+  const handleBuy = async (plan: 'light' | 'basic' | 'pro') => {
+    try {
+      await buy(plan);
+    } catch (e) {
+      console.error('[billing] buy error', e);
+      alert('購入ページに進めませんでした。');
+    }
+  };
+
+  // 支払いポータル
+  const handlePortal = async () => {
+    try {
+      await openPortal();
+    } catch (e) {
+      console.error('[billing] portal error', e);
+      alert('支払い設定ページに進めませんでした。');
+    }
   };
 
   return (
     <>
       <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-        {/* 左：タイトル */}
+        {/* 左：タイトル（以前の見た目を踏襲） */}
         <div className="flex items-center space-x-4">
           <h1 className="text-xl font-semibold text-black hidden md:block">
             DRESSUP | AI画像編集ツール
@@ -137,32 +112,27 @@ export const Header: React.FC = () => {
           <div className="text-xs text-gray-500 bg-gray-800 text-white px-2 py-1 rounded">1.0</div>
         </div>
 
-        {/* 右：購入/残数/支払い/認証/ヘルプ */}
+        {/* 右：残回数 / プラン購入(モーダル) / 支払い設定 / 認証 / ヘルプ */}
         <div className="flex items-center gap-8">
-          <div className="flex items-center gap-2 relative" ref={menuRef}>
+          <div className="flex items-center gap-2">
             {isAuthed ? (
               <>
+                {/* 残回数 */}
                 <span className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1 text-sm">
                   残り {remaining ?? '-'} 回
                 </span>
 
-                {/* プラン購入（ドロップダウン） */}
-                <MiniBtn
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setMenuOpen((v) => !v);
-                  }}
-                  icon={<ChevronDown size={16} />}
-                >
+                {/* プラン購入 → 料金モーダルを開く */}
+                <MiniBtn onClick={() => setOpenPricing(true)}>
                   プラン購入
                 </MiniBtn>
-                {menuOpen && <PlanMenu onPick={pickPlan} />}
 
-                {/* 支払い設定（Customer Portal） */}
-                <MiniBtn onClick={openPortal} icon={<Wallet size={16} />}>
+                {/* 支払い設定（Stripe Customer Portal） */}
+                <MiniBtn onClick={handlePortal} icon={<Wallet size={16} />}>
                   支払い設定
                 </MiniBtn>
 
+                {/* ログアウト */}
                 <MiniBtn onClick={signOut} icon={<LogOut size={16} />}>
                   ログアウト
                 </MiniBtn>
@@ -185,7 +155,17 @@ export const Header: React.FC = () => {
         </div>
       </header>
 
+      {/* 使い方 */}
       <InfoModal open={showInfoModal} onOpenChange={setShowInfoModal} />
+
+      {/* 料金表モーダル（中央配置・スクロール固定） */}
+      <PricingDialog
+        open={openPricing}
+        onOpenChange={setOpenPricing}
+        onBuy={handleBuy}
+      />
     </>
   );
 };
+
+export default Header;
