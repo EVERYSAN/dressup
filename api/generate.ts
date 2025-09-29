@@ -1,206 +1,136 @@
-// /api/generate.ts
+// api/generate.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const GOOGLE_API_KEY = process.env.GEMINI_API_KEY!;             // ← Google AI Studio の API キー
+const ECHO = process.env.ECHO_GENERATE === 'true';
 
-// --- 実際の画像生成APIを呼ぶ場所 ---
-// すぐに動作確認できるよう、ECHO_GENERATE=true の時は
-// image1 をそのまま返すスモークテストにします。
-// これを /api/generate.ts の callImageEditAPI に上書きしてください
+// ---------- Google AI Images API (Imagen 3) 呼び出し ----------
 async function callImageEditAPI({
   prompt,
   image1,
-  image2 = null,
-  temperature = 0.7,
-  seed = null,
+  image2,           // マスクや参照を使う場合に利用（無ければ null）
 }: {
   prompt: string;
-  image1: string;
+  image1: string;   // dataURL (base64)
   image2?: string | null;
-  temperature?: number;
-  seed?: number | null;
-}): Promise<{ data: string; mimeType: string }> {
-  // スモークモード：ECHO_GENERATE=true なら image1 をそのまま返す
-  if (process.env.ECHO_GENERATE === 'true') {
-    const [mimePart, dataPart] = image1.split(';base64,');
-    const mimeType = mimePart.replace('data:', '') || 'image/png';
-    return { data: dataPart || '', mimeType };
+}) {
+  if (ECHO) {
+    // スモークテスト: ベース画像をそのまま返す
+    const b64 = image1.split(',')[1] || image1;
+    const mime = image1.split(';')[0].replace('data:', '') || 'image/png';
+    return { data: (image1.includes(',') ? b64 : image1), mimeType: mime };
   }
 
-  const API_KEY = process.env.GEMINI_API_KEY;
-  if (!API_KEY) throw new Error('GEMINI_API_KEY is not set');
-
-  // data URL を {mimeType, data} に分解
-  const parseDataUrl = (d: string) => {
-    const [mimePart, dataPart] = d.split(';base64,');
-    const mimeType = mimePart.replace('data:', '');
-    const data = dataPart;
-    return { mimeType, data };
+  // dataURL -> {mime, b64} に分解
+  const parse = (d: string) => {
+    if (!d) return null;
+    const [m, b64] = d.split(';base64,');
+    return { mime: m.replace('data:', ''), b64 };
   };
+  const base = parse(image1);
+  if (!base) throw new Error('invalid base image');
 
-  const imgA = parseDataUrl(image1);
-  const imgB = image2 ? parseDataUrl(image2) : null;
+  // （オプション）mask or ref。ここでは mask 方式の例にしています
+  const mask = image2 ? parse(image2) : null;
 
-  // Gemini 2.5 Flash Image エンドポイント例（generateContent）
-  // ドキュメントの “inline_data” 形式を利用して画像＋テキストを送る
-  const reqBody: any = {
-    contents: [
-      {
-        role: 'user',
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: imgA.mimeType, data: imgA.data } },
-        ],
-      },
-    ],
-    generationConfig: {
-      temperature,
-      ...(seed != null ? { seed } : {}),
+  // Images API: v1beta / images:edit もしくは images:generate
+  // - edit: 入力画像＋mask＋指示で編集結果を返す
+  // - generate: テキストから生成（参照を使わない場合）
+  // ここでは edit を使います
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/images:edit?key=${GOOGLE_API_KEY}`;
+
+  const body: any = {
+    // editors: beta で仕様変化があるため、可能なら実機で /v1beta/models を List して整合確認を
+    // "image" や "mask" の指定は bytesBase64Encoded を想定
+    // 下記の payload は現在の GA 対応に合わせた一般形です
+    // （将来の仕様変更に備え、エラー時はレスポンス本文をログ出力してください）
+    edit: {
+      prompt, // 指示
+      image: { imageBytes: base.b64 },                // 入力画像
+      ...(mask ? { mask: { imageBytes: mask.b64 } } : {}),
+      // 生成の詳細パラメータはお好みで（サイズ/手数/安全設定 など）
+      // params: { ... }
     },
   };
-  if (imgB) {
-    reqBody.contents[0].parts.push({
-      inline_data: { mime_type: imgB.mimeType, data: imgB.data },
-    });
-  }
 
-  const resp = await fetch(
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-001:generateContent?key=' + API_KEY,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(reqBody),
-    }
-  );
+  const resp = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 
   if (!resp.ok) {
-    const t = await resp.text();
-    throw new Error(`Gemini API error ${resp.status}: ${t}`);
+    const t = await resp.text().catch(() => '');
+    throw new Error(`Images API error ${resp.status}: ${t}`);
   }
 
   const json = await resp.json();
+  // 返却形は beta で変化がありますが、通常は base64 の画像が 1 枚以上返ります
+  // 代表的には { images: [{ content: { imageBytes: "..." , mimeType } }] } のような形
+  const first =
+    json?.images?.[0]?.content?.imageBytes ||
+    json?.images?.[0]?.b64 ||
+    json?.image?.b64 ||
+    null;
 
-  // 画像出力の取り出し（モデルの返し方により “inline_data” が parts に入る）
-  // 代表的なパターンを拾う実装
-  const candidates = json.candidates || [];
-  for (const c of candidates) {
-    const parts = c?.content?.parts || [];
-    for (const p of parts) {
-      // 画像が inline_data で返る場合
-      if (p.inline_data?.data) {
-        const mimeType = p.inline_data.mime_type || 'image/png';
-        const data = p.inline_data.data; // base64 without dataURL prefix
-        return { data, mimeType };
-      }
-      // テキストしか返ってこない場合（失敗扱いにしておく）
-    }
-  }
+  const mime =
+    json?.images?.[0]?.content?.mimeType ||
+    json?.images?.[0]?.mimeType ||
+    'image/png';
 
-  throw new Error('No image was returned from Gemini.');
+  if (!first) throw new Error('Images API returned no image');
+
+  return { data: first, mimeType: mime };
 }
 
+// ----------------- ここから既存のハンドラ（認証 / 在庫消費 / 返却） -----------------
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS (必要なら微調整)
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type');
     return res.status(204).end();
   }
-
   try {
-    if (req.method !== 'POST') {
-      return res.status(405).json({ error: 'Method Not Allowed' });
-    }
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
-    // --- 1) Bearer でユーザー特定 ---
+    // Authorization からユーザー特定
     const auth = req.headers.authorization || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
     if (!token) return res.status(401).json({ error: 'Missing bearer token' });
 
-    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+    const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+    const { data: userInfo, error: userErr } = await supabaseAdmin.auth.getUser(token);
+    if (userErr || !userInfo?.user) return res.status(401).json({ error: 'Invalid token' });
 
-    const { data: me, error: meErr } = await admin.auth.getUser(token);
-    if (meErr || !me?.user) return res.status(401).json({ error: 'Invalid token' });
+    const userId = userInfo.user.id;
 
-    const userId = me.user.id;
-    const userEmail = me.user.email || null;
+    // users テーブルの在庫チェック（id カラムで管理している想定）
+    const { data: row, error: selErr } = await supabaseAdmin
+      .from('users')
+      .select('credits_total, credits_used')
+      .eq('id', userId)             // ← ここは "uuid" でなく "id"（実テーブルに合わせる）
+      .single();
+    if (selErr || !row) return res.status(500).json({ error: 'User row not found' });
 
-    // --- 2) users を upsert（id でも uuid でも動くよう両方トライ） ---
-    const baseUser = {
-      email: userEmail,
-      plan: 'free',
-      credits_total: 10,
-      credits_used: 0,
-    };
-
-    // onConflict は存在するユニークキー/PK を指定する必要がある
-    // 先に id で upsert を試し、失敗したら uuid で再試行（列が無い/キーが違う環境を吸収）
-    let upsertOk = false;
-    {
-      const { error } = await admin
-        .from('users')
-        .upsert([{ id: userId, ...baseUser }], { onConflict: 'id' })
-        .select('id');
-      if (!error) upsertOk = true;
-    }
-    if (!upsertOk) {
-      await admin
-        .from('users')
-        .upsert([{ uuid: userId, ...baseUser }], { onConflict: 'uuid' })
-        .select('uuid');
-    }
-
-    // --- 3) 残クレジット確認（id → ダメなら uuid） ---
-    // 列の有無で SELECT が失敗する場合があるので、順にフォールバック
-    let creditsRow: { credits_total: number | null; credits_used: number | null } | null = null;
-
-    {
-      const q = await admin.from('users').select('credits_total, credits_used').eq('id', userId).limit(1).maybeSingle();
-      if (!q.error && q.data) {
-        creditsRow = q.data;
-      }
-    }
-    if (!creditsRow) {
-      const q = await admin.from('users').select('credits_total, credits_used').eq('uuid', userId).limit(1).maybeSingle();
-      if (!q.error && q.data) {
-        creditsRow = q.data;
-      }
-    }
-    if (!creditsRow) {
-      return res.status(500).json({ error: "DB error(select users)", detail: "Neither 'id' nor 'uuid' matched" });
-    }
-
-    const creditsTotal = creditsRow.credits_total ?? 0;
-    const creditsUsed = creditsRow.credits_used ?? 0;
-    const remaining = creditsTotal - creditsUsed;
+    const remaining = (row.credits_total ?? 0) - (row.credits_used ?? 0);
     if (remaining <= 0) return res.status(402).json({ error: 'No credits' });
 
-    // --- 4) 入力チェック ---
-    const { prompt, image1, image2 = null, temperature = 0.7, seed = null } = (req.body || {}) as {
-      prompt: string;
-      image1: string;
-      image2?: string | null;
-      temperature?: number;
-      seed?: number | null;
-    };
+    // まずクレジットを消費（重複実行に強い）
+    const { error: rpcErr } = await supabaseAdmin.rpc('consume_credit', { p_user_id: userId });
+    if (rpcErr) return res.status(409).json({ error: 'Consume failed', detail: rpcErr.message });
 
+    const { prompt, image1, image2 = null } = req.body || {};
     if (!prompt || !image1) return res.status(400).json({ error: 'Missing prompt or image1' });
 
-    // --- 5) 先に消費（DB整合性を優先）。RPCは p_user_id uuid を受ける想定 ---
-    const { error: rpcErr } = await admin.rpc('consume_credit', { p_user_id: userId });
-    if (rpcErr) {
-      // 競合や一時失敗は 409 で返し、フロントで再実行を促す
-      return res.status(409).json({ error: 'Consume failed', detail: rpcErr.message });
-    }
+    // 画像生成（編集）
+    const result = await callImageEditAPI({ prompt, image1, image2 });
 
-    // --- 6) 画像生成 ---
-    const result = await callImageEditAPI({ prompt, image1, image2, temperature, seed });
-
-    // --- 7) 成功レスポンス（フロントが必ず finally へ到達できるよう JSON 固定） ---
+    // JSON で返却（フロント側の取り込みは既に実装済み）
     return res.status(200).json({ image: { data: result.data, mimeType: result.mimeType } });
   } catch (e: any) {
-    return res.status(500).json({ error: 'Server error', detail: String(e?.message ?? e) });
+    return res.status(500).json({ error: 'Server error', detail: String(e?.message || e) });
   }
 }
