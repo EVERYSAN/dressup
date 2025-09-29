@@ -13,7 +13,7 @@ import {useAppStore} from '../store/useAppStore';
  * - 支払い設定（Stripe カスタマーポータル）
  * - ログアウト
  */
-export default function Header() {
+export function Header() {
   const [pricingOpen, setPricingOpen] = useState(false);
 
   // 残回数は store の users テーブル相当の値から算出
