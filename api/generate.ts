@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-// ---- 画像生成（ダミー：実処理に差し替えてOK）----
+// 画像生成（ここを本実装に差し替えOK）
 async function callImageEditAPI({
   prompt, image1, image2, temperature, seed,
 }: { prompt: string; image1: string; image2?: string | null; temperature?: number; seed?: number | null; }) {
@@ -14,37 +14,60 @@ async function callImageEditAPI({
   return { data: dummyBase64, mimeType: 'image/png' };
 }
 
-// ---- ユーティリティ ----
+// 返却ヘルパ
 const json = (res: VercelResponse, status: number, body: any) => res.status(status).json(body);
-const isMissingColErr = (err?: { message?: string | null }) =>
-  !!err?.message?.toLowerCase?.().includes("column") && !!err?.message?.toLowerCase?.().includes("not find");
 
-// usersテーブルの主キー列名を推定（uuid or id）。ついでに行も取得して返す。
-async function getUserRowWithKey(
+// ---- カラム存在チェック（information_schema.columns を利用）----
+async function hasColumn(
   admin: ReturnType<typeof createClient>,
-  supaUid: string
-): Promise<{ key: 'uuid' | 'id'; row: any | null; error: any | null }> {
-  // 1) uuid でトライ
-  let q1 = await admin.from('users').select('uuid, email, plan, credits_total, credits_used').eq('uuid', supaUid).maybeSingle();
-  if (q1.error && isMissingColErr(q1.error)) {
-    // 2) id で取り直し
-    let q2 = await admin.from('users').select('id, email, plan, credits_total, credits_used').eq('id', supaUid).maybeSingle();
-    if (q2.error) return { key: 'id', row: null, error: q2.error };
-    return { key: 'id', row: q2.data ?? null, error: null };
+  table: string,
+  column: string,
+  schema = 'public'
+): Promise<boolean> {
+  const { data, error } = await admin
+    .from('information_schema.columns')
+    .select('column_name')
+    .eq('table_schema', schema)
+    .eq('table_name', table)
+    .eq('column_name', column);
+  if (error) {
+    // information_schema にアクセスできないケースは稀だが、安全に false 扱い
+    return false;
   }
-  if (q1.error) return { key: 'uuid', row: null, error: q1.error };
-  return { key: 'uuid', row: q1.data ?? null, error: null };
+  return (data?.length ?? 0) > 0;
 }
 
-// users 行を upsert（uuid 優先、ダメなら id）
+// users 主キー候補（uuid / id）を判定
+async function detectUserKey(admin: ReturnType<typeof createClient>): Promise<'uuid' | 'id'> {
+  const hasUuid = await hasColumn(admin, 'users', 'uuid');
+  if (hasUuid) return 'uuid';
+  const hasId = await hasColumn(admin, 'users', 'id');
+  if (hasId) return 'id';
+  // どちらも無い → スキーマ不一致
+  throw new Error("Neither 'uuid' nor 'id' column exists on public.users");
+}
+
+// 指定キーで users 1行取得
+async function selectUserRow(
+  admin: ReturnType<typeof createClient>,
+  key: 'uuid' | 'id',
+  supaUid: string
+) {
+  return admin
+    .from('users')
+    .select('email, plan, credits_total, credits_used')
+    .eq(key, supaUid)
+    .maybeSingle();
+}
+
+// 指定キーで upsert（free:10 付与）
 async function upsertUserRow(
   admin: ReturnType<typeof createClient>,
   key: 'uuid' | 'id',
   supaUid: string,
   email: string | null
-): Promise<{ ok: boolean; error: any | null }> {
-  // まずは判定済みの key で insert/upsert
-  let payload: any = {
+) {
+  const payload: any = {
     [key]: supaUid,
     email,
     plan: 'free',
@@ -52,26 +75,7 @@ async function upsertUserRow(
     credits_used: 0,
     created_at: new Date().toISOString(),
   };
-  let up = await admin.from('users').upsert(payload).select('*').maybeSingle();
-  if (!up.error) return { ok: true, error: null };
-
-  // もし列が無いエラーならキーを切り替えて再トライ（uuid→id or id→uuid）
-  if (isMissingColErr(up.error)) {
-    const altKey: 'uuid' | 'id' = key === 'uuid' ? 'id' : 'uuid';
-    payload = {
-      [altKey]: supaUid,
-      email,
-      plan: 'free',
-      credits_total: 10,
-      credits_used: 0,
-      created_at: new Date().toISOString(),
-    };
-    const up2 = await admin.from('users').upsert(payload).select('*').maybeSingle();
-    if (!up2.error) return { ok: true, error: null };
-    return { ok: false, error: up2.error };
-  }
-
-  return { ok: false, error: up.error };
+  return admin.from('users').upsert(payload).select('*').maybeSingle();
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -98,26 +102,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const supaUid = userInfo.user.id;
     const email = userInfo.user.email ?? null;
 
-    // 2) users 行取得（uuid→id 自動判別）
-    let { key, row, error } = await getUserRowWithKey(admin, supaUid);
-    if (error && !String(error?.message || '').includes('PGRST116')) {
-      // PGRST116 は「行が見つからない」なので無視。それ以外のDBエラーは返す
-      return json(res, 500, { error: 'DB error(select users)', detail: error.message || String(error) });
-    }
+    // 2) users のキーを自動判別（ここで uuid 不在なら id を選ぶので「column users.uuid does not exist」を回避）
+    const key = await detectUserKey(admin);
 
-    // 3) 無ければ自動作成（free:10）
+    // 3) 行取得 or 自動作成
+    let { data: row, error: selErr } = await selectUserRow(admin, key, supaUid);
+    if (selErr) return json(res, 500, { error: 'DB error(select users)', detail: selErr.message || String(selErr) });
+
     if (!row) {
-      const up = await upsertUserRow(admin, key, supaUid, email);
-      if (!up.ok) {
-        return json(res, 500, { error: 'Upsert user failed', detail: up.error?.message || String(up.error) });
+      const { error: upErr } = await upsertUserRow(admin, key, supaUid, email);
+      if (upErr) return json(res, 500, { error: 'Upsert user failed', detail: upErr.message || String(upErr) });
+
+      const r2 = await selectUserRow(admin, key, supaUid);
+      if (r2.error || !r2.data) {
+        return json(res, 500, { error: 'User row not found after upsert', detail: r2.error?.message || String(r2.error) });
       }
-      // 作成後に再取得（キーは変わる可能性があるので再推定）
-      const second = await getUserRowWithKey(admin, supaUid);
-      if (second.error || !second.row) {
-        return json(res, 500, { error: 'User row not found after upsert', detail: second.error?.message || String(second.error) });
-      }
-      key = second.key;
-      row = second.row;
+      row = r2.data;
     }
 
     // 4) 残回数チェック
@@ -132,10 +132,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { prompt, image1, image2 = null, temperature = 0.7, seed = null } = (req.body as any) || {};
     if (!prompt || !image1) return json(res, 400, { error: 'Missing prompt or image1' });
 
-    // 7) 画像生成（あなたの実装に差し替えOK）
+    // 7) 画像生成
     const result = await callImageEditAPI({ prompt, image1, image2, temperature, seed });
 
-    // 8) 常に JSON 返却
+    // 8) 常に JSON 返却（finally に到達しやすくする）
     return json(res, 200, { image: { data: result.data, mimeType: result.mimeType } });
   } catch (e: any) {
     return json(res, 500, { error: 'Server error', detail: String(e?.message || e) });
