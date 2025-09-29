@@ -1,47 +1,46 @@
-import Stripe from 'stripe';
+// src/lib/billing.ts
+// Stripe Checkout / Customer Portal を叩くクライアント側ユーティリティ（フロント専用）
 
-export const config = { runtime: 'nodejs18.x' }; // 省略可（Vercel の場合）
+type Plan = 'light' | 'basic' | 'pro';
 
-const stripe = new Stripe(process.env.STRIPE_API_KEY!, {
-  apiVersion: '2024-06-20',
-});
-
-export default async function handler(req: Request): Promise<Response> {
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  let plan: 'light' | 'basic' | 'pro' | undefined;
-  try {
-    const body = await req.json();            // ← JSON を受け取る
-    plan = body?.plan;
-  } catch {
-    /* noop */
-  }
-  if (!plan) {
-    return new Response(JSON.stringify({ error: 'plan is required' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  const priceIdMap: Record<'light'|'basic'|'pro', string> = {
-    light: process.env.STRIPE_PRICE_LIGHT!,
-    basic: process.env.STRIPE_PRICE_BASIC!,
-    pro:   process.env.STRIPE_PRICE_PRO!,
-  };
-
-  const session = await stripe.checkout.sessions.create({
-    mode: 'subscription',
-    line_items: [{ price: priceIdMap[plan], quantity: 1 }],
-    success_url: `${process.env.NEXT_PUBLIC_APP_URL}/?success=1`,
-    cancel_url:  `${process.env.NEXT_PUBLIC_APP_URL}/?canceled=1`,
-  });
-
-  return new Response(JSON.stringify({ url: session.url }), {
+async function postJson<T = any>(url: string, body?: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : '{}',
   });
+
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`Server responded ${res.status}: ${text}`);
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`Invalid JSON from server: ${text}`);
+  }
+}
+
+/** プラン購入 → Stripe Checkout にリダイレクト */
+export async function buy(plan: Plan) {
+  try {
+    const data = await postJson<{ url: string }>('/api/stripe/create-checkout', { plan });
+    if (!data?.url) throw new Error('Checkout URL missing');
+    window.location.href = data.url;
+  } catch (err: any) {
+    alert(`購入ページに進めませんでした:\n${err?.message ?? err}`);
+    console.error(err);
+  }
+}
+
+/** 請求先/支払い方法の変更 → Stripe Customer Portal へ */
+export async function openPortal() {
+  try {
+    const data = await postJson<{ url: string }>('/api/stripe/create-portal');
+    if (!data?.url) throw new Error('Portal URL missing');
+    window.location.href = data.url;
+  } catch (err: any) {
+    alert(`支払い設定ページに進めませんでした:\n${err?.message ?? err}`);
+    console.error(err);
+  }
 }
