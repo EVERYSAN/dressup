@@ -1,137 +1,168 @@
-// /api/stripe/webhook.ts
+// api/stripe/webhook.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
+import getRawBody from 'raw-body';
 import { createClient } from '@supabase/supabase-js';
-
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
 
 const stripe = new Stripe(process.env.STRIPE_API_KEY!, {
   apiVersion: '2024-06-20',
 });
+const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET!;
 
-// Service Role で RLS 越え更新
-const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const SUPABASE_URL = process.env.SUPABASE_URL!;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-// 価格ID → { plan, limit } のマップ
-const priceToQuota = new Map<string, { plan: string; limit: number }>([
-  [process.env.STRIPE_PRICE_LIGHT!, { plan: 'light', limit: 50 }],
-  [process.env.STRIPE_PRICE_BASIC!, { plan: 'basic', limit: 100 }],
-  [process.env.STRIPE_PRICE_PRO!  , { plan: 'pro',   limit: 300 }],
-]);
+const supa = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+  auth: { persistSession: false },
+});
 
-export default async function handler(req: Request) {
-  // Stripe署名検証のため、JSONにせず raw ボディを使う
-  const sig = req.headers.get('stripe-signature');
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+// ★ 価格ID → プラン名・付与回数 の対応
+const PRICE_TO_PLAN: Record<string, { plan: 'light'|'basic'|'pro'; credits: number }> = {
+  [process.env.STRIPE_PRICE_LIGHT!]: { plan: 'light', credits: 50  },   // 月50回
+  [process.env.STRIPE_PRICE_BASIC!]: { plan: 'basic', credits: 100 },   // 月100回
+  [process.env.STRIPE_PRICE_PRO!]:   { plan: 'pro',   credits: 300 },   // 月300回
+};
 
-  if (!sig || !secret) {
-    return new Response('Missing signature or secret', { status: 400 });
+// free解約時の既定回数
+const FREE_CREDITS = 10;
+
+async function upsertUserPlanById({
+  userId,
+  email,
+  plan,
+  creditsTotal,
+}: {
+  userId: string;
+  email?: string | null;
+  plan: 'free'|'light'|'basic'|'pro';
+  creditsTotal: number;
+}) {
+  // users.id 基準で upsert
+  const { error } = await supa
+    .from('users')
+    .upsert(
+      {
+        id: userId,
+        email: email ?? undefined,
+        plan,
+        credits_total: creditsTotal,
+      },
+      { onConflict: 'id' }
+    );
+
+  if (error) {
+    console.error('[webhook] upsert users failed', error);
+    throw new Error(error.message);
   }
+}
 
-  const rawBody = await req.text();
-
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // Stripe 署名検証には raw body が必須
   let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(rawBody, sig, secret);
+    const rawBody = (await getRawBody(req)).toString('utf8');
+    const signature = req.headers['stripe-signature'] as string;
+    event = stripe.webhooks.constructEvent(rawBody, signature, WEBHOOK_SECRET);
   } catch (err: any) {
-    console.error('Webhook signature verification failed', err?.message);
-    return new Response(`Webhook Error: ${err?.message}`, { status: 400 });
+    console.error('[webhook] signature verify failed', err?.message || err);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
   try {
     switch (event.type) {
-      // 1) 初回購入・チェックアウト完了
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
-        const userId = (session.metadata as any)?.user_id as string | undefined;
+        // ここで metadata.user_id を使ってアプリのユーザーと結びつける
+        const userId = (session.metadata?.user_id as string) || '';
+        const priceId = session?.line_items?.data?.[0]?.price?.id // 拡張されている場合
+          || (session.metadata?.price_id as string)               // 自分で入れた場合
+          || '';
 
-        // 価格IDを取り出す（line_items なしのことがあるので、必要なら expand して再取得）
-        let priceId: string | undefined;
-
-        // まずは簡易に subscription から
-        if (!priceId && session.subscription) {
-          const sub = await stripe.subscriptions.retrieve(session.subscription as string);
-          priceId = sub.items.data[0]?.price?.id;
-        }
-
-        // それでも無ければ line_items を expand
-        if (!priceId) {
-          const full = await stripe.checkout.sessions.retrieve(session.id, {
-            expand: ['line_items'],
-          });
-          priceId = full.line_items?.data?.[0]?.price?.id;
-        }
-
-        if (!userId || !priceId) {
-          console.warn('missing userId or priceId');
+        if (!userId) {
+          console.warn('[webhook] no metadata.user_id on session');
           break;
         }
 
-        const entry = priceToQuota.get(priceId);
-        if (!entry) {
-          console.warn('price not mapped', priceId);
+        // 価格ID → プランに変換
+        const planInfo = PRICE_TO_PLAN[priceId];
+        if (!planInfo) {
+          console.warn('[webhook] unknown price id', priceId);
           break;
         }
 
-        // プラン反映 + 当月は使用回数リセット
-        const { error } = await supabaseAdmin
-          .from('app_users')
-          .update({
-            plan: entry.plan,
-            quota_limit: entry.limit,
-            quota_used: 0,
-            quota_period_start: new Date().toISOString().slice(0, 10),
-          })
-          .eq('user_id', userId);
-
-        if (error) throw error;
+        await upsertUserPlanById({
+          userId,
+          email: session.customer_details?.email ?? null,
+          plan: planInfo.plan,
+          creditsTotal: planInfo.credits,
+        });
         break;
       }
 
-      // 2) 毎月の請求が支払われたタイミングで回数リセットしたい場合（任意）
-      case 'invoice.paid': {
-        const invoice = event.data.object as Stripe.Invoice;
-        const subId = invoice.subscription as string | undefined;
-        if (!subId) break;
+      case 'customer.subscription.updated': {
+        const sub = event.data.object as Stripe.Subscription;
 
-        // サブスクから customer を得て → そこからメタデータや price を辿る
-        const sub = await stripe.subscriptions.retrieve(subId);
-        const priceId = sub.items.data[0]?.price?.id;
-        const entry = priceToQuota.get(priceId ?? '');
-        if (!entry) break;
+        // ユーザーIDは Checkout 作成時に metadata に同梱しておくのが王道
+        const userId = (sub.metadata?.user_id as string) || '';
+        if (!userId) {
+          console.warn('[webhook] no metadata.user_id on subscription.updated');
+          break;
+        }
 
-        // どの user_id か？ … 初回 checkout.session の metadata.user_id を
-        // customer の metadata にコピーしておくと取りやすいです。
-        const customer = await stripe.customers.retrieve(sub.customer as string) as Stripe.Customer;
-        const userId = (customer.metadata as any)?.user_id as string | undefined;
+        // アクティブな最上位価格を拾う
+        const priceId =
+          (sub.items?.data?.[0]?.price?.id as string) || '';
+
+        // ステータスに応じた処理
+        if (sub.status === 'active' || sub.status === 'trialing') {
+          const planInfo = PRICE_TO_PLAN[priceId];
+          if (planInfo) {
+            await upsertUserPlanById({
+              userId,
+              plan: planInfo.plan,
+              creditsTotal: planInfo.credits,
+              email: undefined,
+            });
+          }
+        } else if (
+          sub.status === 'canceled' ||
+          sub.status === 'incomplete_expired' ||
+          sub.status === 'unpaid' ||
+          sub.status === 'past_due'
+        ) {
+          // free に落とす
+          await upsertUserPlanById({
+            userId,
+            plan: 'free',
+            creditsTotal: FREE_CREDITS,
+            email: undefined,
+          });
+        }
+        break;
+      }
+
+      case 'customer.subscription.deleted': {
+        const sub = event.data.object as Stripe.Subscription;
+        const userId = (sub.metadata?.user_id as string) || '';
         if (!userId) break;
 
-        const { error } = await supabaseAdmin
-          .from('app_users')
-          .update({
-            plan: entry.plan,
-            quota_limit: entry.limit,
-            quota_used: 0,
-            quota_period_start: new Date().toISOString().slice(0, 10),
-          })
-          .eq('user_id', userId);
-
-        if (error) throw error;
+        await upsertUserPlanById({
+          userId,
+          plan: 'free',
+          creditsTotal: FREE_CREDITS,
+          email: undefined,
+        });
         break;
       }
 
       default:
-        // 他のイベントはログだけ
-        // console.log(`Unhandled event type ${event.type}`);
+        // 使わないイベントは 200 で OK
         break;
     }
 
-    return new Response('OK', { status: 200 });
-  } catch (err: any) {
-    console.error('Webhook handler failed', err);
-    return new Response('Webhook handler error', { status: 500 });
+    return res.status(200).json({ received: true });
+  } catch (e: any) {
+    console.error('[webhook] handler error', e?.message || e);
+    return res.status(500).json({ error: 'webhook failed', detail: String(e?.message || e) });
   }
 }
