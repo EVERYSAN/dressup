@@ -1,59 +1,89 @@
-// /api/stripe/create-checkout.ts
+// api/stripe/create-checkout.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
+import { createClient } from '@supabase/supabase-js';
 
-export const runtime = 'nodejs';           // Vercel Functions
-export const dynamic = 'force-dynamic';    // キャッシュさせない
+const STRIPE_API_KEY = process.env.STRIPE_API_KEY!;
+const NEXT_PUBLIC_APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
+const SUPABASE_URL = process.env.SUPABASE_URL!;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-const stripe = new Stripe(process.env.STRIPE_API_KEY!, {
-  apiVersion: '2024-06-20',
-});
+const PRICE_LIGHT = process.env.STRIPE_PRICE_LIGHT!;
+const PRICE_BASIC = process.env.STRIPE_PRICE_BASIC!;
+const PRICE_PRO = process.env.STRIPE_PRICE_PRO!;
 
-type Body = {
-  plan: 'light' | 'basic' | 'pro';
-  userId: string; // supabase.auth.getUser().id を渡す
+const stripe = new Stripe(STRIPE_API_KEY, { apiVersion: '2024-06-20' });
+
+const planToPrice = (plan: string) => {
+  switch (plan) {
+    case 'light':
+      return PRICE_LIGHT;
+    case 'basic':
+      return PRICE_BASIC;
+    case 'pro':
+      return PRICE_PRO;
+    default:
+      return null;
+  }
 };
 
-export default async function handler(req: Request) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    if (req.method !== 'POST') {
-      return new Response('Method Not Allowed', { status: 405 });
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
+
+    const { plan } = (req.body ?? {}) as { plan?: 'light' | 'basic' | 'pro' };
+    const price = planToPrice(plan || '');
+    if (!price) return res.status(400).json({ error: 'Invalid plan' });
+
+    const auth = req.headers.authorization || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (!token) return res.status(401).json({ error: 'Missing bearer token' });
+
+    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+    const { data: userInfo, error: userErr } = await admin.auth.getUser(token);
+    if (userErr || !userInfo?.user) return res.status(401).json({ error: 'Invalid token' });
+
+    const uid = userInfo.user.id;
+    const email = userInfo.user.email || undefined;
+
+    const { data: row, error: selErr } = await admin
+      .from('users')
+      .select('id, email, stripe_customer_id')
+      .eq('id', uid)
+      .single();
+
+    if (selErr) return res.status(500).json({ error: 'DB select failed', detail: selErr.message });
+
+    let customerId = row?.stripe_customer_id as string | null;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: row?.email ?? email,
+        metadata: { app_uid: uid },
+      });
+      customerId = customer.id;
+
+      const { error: updErr } = await admin
+        .from('users')
+        .update({ stripe_customer_id: customerId })
+        .eq('id', uid);
+      if (updErr) return res.status(500).json({ error: 'DB update failed', detail: updErr.message });
     }
 
-    const { plan, userId } = (await req.json()) as Partial<Body>;
-
-    if (!plan || !userId) {
-      return new Response('Missing plan or userId', { status: 400 });
-    }
-
-    const priceId =
-      plan === 'light' ? process.env.STRIPE_PRICE_LIGHT :
-      plan === 'basic' ? process.env.STRIPE_PRICE_BASIC :
-      plan === 'pro'   ? process.env.STRIPE_PRICE_PRO   : undefined;
-
-    if (!priceId) {
-      return new Response('Unknown plan', { status: 400 });
-    }
-
-    const successUrl = `${process.env.NEXT_PUBLIC_APP_URL}/?status=success`;
-    const cancelUrl  = `${process.env.NEXT_PUBLIC_APP_URL}/?status=cancel`;
+    const baseUrl = NEXT_PUBLIC_APP_URL || (req.headers.origin as string) || 'https://example.com';
 
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
-      line_items: [{ price: priceId, quantity: 1 }],
-      success_url: successUrl,
-      cancel_url : cancelUrl,
+      customer: customerId,
+      line_items: [{ price, quantity: 1 }],
       allow_promotion_codes: true,
-      // Webhook でユーザーを紐づける重要情報
-      metadata: { user_id: userId },
-
-      // あると便利：毎月の invoice 用にカード名義や住所を集められる
-      // customer_creation: 'if_required', // or 'always'
-      // customer_update: { address: 'auto' },
+      success_url: `${baseUrl}/?checkout=success`,
+      cancel_url: `${baseUrl}/?checkout=cancel`,
+      // metadata でプラン名をWebhookに伝えるのも可
+      metadata: { uid, plan: plan! },
     });
 
-    return Response.json({ url: session.url }, { status: 200 });
-  } catch (err: any) {
-    console.error('create-checkout error', err);
-    return new Response(`Error: ${err?.message ?? 'unknown'}`, { status: 500 });
+    return res.status(200).json({ url: session.url });
+  } catch (e: any) {
+    return res.status(500).json({ error: 'Server error', detail: e?.message || String(e) });
   }
 }
