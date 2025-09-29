@@ -1,116 +1,123 @@
 // src/components/Header.tsx
 import React, { useCallback, useMemo, useState } from 'react';
 import { LogOut, Wallet } from 'lucide-react';
-import PricingDialog from './PricingDialog'; // ← default import に統一
+import PricingDialog from './PricingDialog'; // ← default import（ファイル側が default export）
 import { supabase } from '../lib/supabaseClient';
 import { openPortal, buy } from '../lib/billing';
-import { useAppStore } from '../store/useAppStore'; // ← あなたの実パスに合わせて
+import { useAppStore } from '../store/useAppStore'; // ← named export 前提
 
 type PlanKey = 'light' | 'basic' | 'pro';
 
-// 安全ガード：もし誤って undefined を JSX に渡しても落ちないように
-function guardElementType(Comp: any, name: string): React.ComponentType<any> {
-  const ok =
-    Comp &&
-    (typeof Comp === 'function' ||
-      (typeof Comp === 'object' && (Comp as any).$$typeof && String((Comp as any).$$typeof).includes('react')));
-  if (!ok) {
-    console.error(`[Header] Invalid component for ${name}. Got:`, Comp);
-    return () => null;
-  }
-  return Comp as React.ComponentType<any>;
-}
-
-const SafePricingDialog = guardElementType(PricingDialog, 'PricingDialog');
-
-function HeaderImpl() {
+export const Header: React.FC = () => {
+  const { user, creditsRemaining } = useAppStore(); // ストアに無ければ適宜削ってOK
   const [pricingOpen, setPricingOpen] = useState(false);
-  const { user } = useAppStore((s) => ({ user: s.user }));
+  const [busy, setBusy] = useState<'portal' | 'logout' | null>(null);
 
-  const remaining = useMemo(() => {
-    const total = user?.credits_total ?? 0;
-    const used = user?.credits_used ?? 0;
-    return Math.max(0, total - used);
-  }, [user]);
+  const isLoggedIn = !!user;
 
-  const handleOpenPricing = useCallback(() => setPricingOpen(true), []);
-  const handleClosePricing = useCallback(() => setPricingOpen(false), []);
-
-  const handleSelectPlan = useCallback(async (plan: PlanKey) => {
+  const handleLogout = useCallback(async () => {
     try {
-      await buy(plan);
-      setPricingOpen(false);
-    } catch (e: any) {
-      console.error('[Header] buy(plan) failed:', e);
-      alert(`購入フローを開始できませんでした:\n${e?.message ?? e}`);
+      setBusy('logout');
+      await supabase.auth.signOut();
+      // 画面更新はアプリ側の auth 監視に任せる
+    } finally {
+      setBusy(null);
     }
   }, []);
 
   const handleOpenPortal = useCallback(async () => {
     try {
+      setBusy('portal');
       await openPortal();
-    } catch (e: any) {
-      console.error('[Header] openPortal() failed:', e);
-      alert(`支払い設定ページに進めませんでした:\n${e?.message ?? e}`);
+    } catch (e) {
+      console.error(e);
+      alert('ポータルの起動に失敗しました。Stripe のポータル設定（本番）を保存済みか確認してください。');
+    } finally {
+      setBusy(null);
     }
   }, []);
 
-  const handleLogout = useCallback(async () => {
+  const handleSelectPlan = useCallback(async (plan: PlanKey) => {
     try {
-      await supabase.auth.signOut();
-      location.reload();
-    } catch (e: any) {
-      console.error('[Header] logout failed:', e);
-      alert(`ログアウトに失敗しました:\n${e?.message ?? e}`);
+      await buy(plan); // サーバ側で price id を選択して Checkout 起動
+    } catch (e) {
+      console.error(e);
+      alert('チェックアウトの起動に失敗しました。');
+    } finally {
+      setPricingOpen(false);
     }
   }, []);
+
+  const creditBadge = useMemo(() => {
+    if (typeof creditsRemaining === 'number') {
+      return (
+        <span className="ml-2 rounded-full bg-emerald-700/90 text-white text-xs px-2 py-0.5">
+          残り {creditsRemaining}
+        </span>
+      );
+    }
+    return null;
+  }, [creditsRemaining]);
 
   return (
-    <header className="flex items-center justify-between gap-3 px-4 py-3">
-      <div className="flex items-center gap-2">
-        <span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">
-          残り {remaining} 回
-        </span>
+    <header className="w-full border-b border-gray-200 bg-white/70 backdrop-blur sticky top-0 z-40">
+      <div className="mx-auto max-w-7xl px-3 sm:px-4 md:px-6">
+        <div className="h-14 flex items-center justify-between">
+          {/* Brand */}
+          <div className="flex items-center gap-2">
+            <div className="h-7 w-7 rounded-md bg-emerald-600" />
+            <div className="text-sm font-bold tracking-wide">DRESSUP</div>
+            {creditBadge}
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2">
+            {/* プラン購入（モーダルを開く） */}
+            <button
+              type="button"
+              onClick={() => setPricingOpen(true)}
+              className="rounded-lg border border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-50 px-3 py-1.5 text-sm font-medium"
+            >
+              プラン購入
+            </button>
+
+            {/* 支払い設定（Stripe カスタマーポータル） */}
+            <button
+              type="button"
+              onClick={handleOpenPortal}
+              disabled={!isLoggedIn || busy === 'portal'}
+              className="inline-flex items-center rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-sm font-medium disabled:opacity-60"
+              title={isLoggedIn ? '支払い設定を開く' : 'ログインするとご利用いただけます'}
+            >
+              <Wallet className="h-4 w-4 mr-1.5" />
+              支払い設定
+            </button>
+
+            {/* ログアウト */}
+            {isLoggedIn && (
+              <button
+                type="button"
+                onClick={handleLogout}
+                disabled={busy === 'logout'}
+                className="ml-1 inline-flex items-center rounded-lg border border-gray-300 bg-white hover:bg-gray-50 px-3 py-1.5 text-sm"
+              >
+                <LogOut className="h-4 w-4 mr-1.5" />
+                ログアウト
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={handleOpenPricing}
-          className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium hover:bg-gray-50"
-        >
-          プラン購入
-        </button>
-
-        <button
-          type="button"
-          onClick={handleOpenPortal}
-          className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium hover:bg-gray-50"
-          title="支払い方法の変更・解約など"
-        >
-          <Wallet className="h-4 w-4" />
-          <span>支払い設定</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium hover:bg-gray-50"
-        >
-          <LogOut className="h-4 w-4" />
-          <span>ログアウト</span>
-        </button>
-      </div>
-
-      <SafePricingDialog
+      {/* Pricing モーダル */}
+      <PricingDialog
         open={pricingOpen}
-        onClose={handleClosePricing}
+        onClose={() => setPricingOpen(false)}
         onSelect={handleSelectPlan}
       />
     </header>
   );
-}
+};
 
-// App.tsx が { Header } で読み込んでも、default で読んでも動くよう両方出す
-export const Header = HeaderImpl;
-export default HeaderImpl;
+// 必要なら default も出す（App 側が default import していた場合の互換）
+export default Header;
