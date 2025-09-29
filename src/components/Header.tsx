@@ -1,65 +1,86 @@
-// src/components/Header.tsx
-import React, { useCallback, useMemo, useState } from 'react';
-import { LogOut, Wallet } from 'lucide-react';
-import PricingDialog from './PricingDialog'; // ← default import（ファイル側が default export）
-import { supabase } from '../lib/supabaseClient';
-import { openPortal, buy } from '../lib/billing';
-import { useAppStore } from '../store/useAppStore'; // ← named export 前提
-
-type PlanKey = 'light' | 'basic' | 'pro';
-
-export const Header: React.FC = () => {
-  const { user, creditsRemaining } = useAppStore(); // ストアに無ければ適宜削ってOK
-  const [pricingOpen, setPricingOpen] = useState(false);
-  const [busy, setBusy] = useState<'portal' | 'logout' | null>(null);
-import React, { useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { LogOut, Wallet } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { openPortal, buy } from '../lib/billing';
-import PricingDialog, { PricingDialog as PricingDialogNamed } from './PricingDialog';
+import PricingDialog from './PricingDialog';
 
 type PlanKey = 'light' | 'basic' | 'pro';
 
 export const Header: React.FC = () => {
   const [openPricing, setOpenPricing] = useState(false);
+  const [isAuthed, setIsAuthed] = useState(false);
 
-  // 料金表のモーダルを開く
-  const handleOpenPricing = () => setOpenPricing(true);
+  // --- auth 状態を監視（初期表示 & 以降の変化） ---
+  useEffect(() => {
+    let cancelled = false;
 
-  const handleBuy = async (plan: PlanKey) => {
+    const load = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!cancelled) setIsAuthed(!!data.session);
+    };
+    load();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_evt, session) => {
+      setIsAuthed(!!session);
+    });
+
+    return () => {
+      cancelled = true;
+      sub?.subscription?.unsubscribe?.();
+    };
+  }, []);
+
+  // --- モーダル開閉 ---
+  const handleOpenPricing = useCallback(() => setOpenPricing(true), []);
+
+  // --- 課金系 ---
+  const handleBuy = useCallback(async (plan: PlanKey) => {
     try {
       await buy(plan);
     } catch (e) {
       console.error('[billing] buy error', e);
       alert('購入ページに進めませんでした。');
     }
-  };
+  }, []);
 
-  const handlePortal = async () => {
+  const handlePortal = useCallback(async () => {
     try {
       await openPortal();
     } catch (e) {
       console.error('[billing] portal error', e);
       alert('支払い設定ページに進めませんでした。');
     }
-  };
+  }, []);
 
-  const handleSignOut = async () => {
+  // --- サインイン / サインアウト ---
+  const handleGoogleSignIn = useCallback(async () => {
+    try {
+      await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin,
+        },
+      });
+    } catch (e) {
+      console.error('[auth] signIn error', e);
+      alert('ログインに失敗しました。');
+    }
+  }, []);
+
+  const handleSignOut = useCallback(async () => {
     try {
       await supabase.auth.signOut();
-      // 画面をリロードして状態をリセット
-      location.reload();
+      location.reload(); // 状態をリセット
     } catch (e) {
       console.error('[auth] signOut error', e);
     }
-  };
+  }, []);
 
   return (
     <>
       <header className="w-full border-b bg-white">
         <div className="mx-auto flex h-14 max-w-screen-2xl items-center justify-between px-3 md:h-16 md:px-6">
-
-          {/* ==== 左：アプリタイトル（以前の表示に戻す） ==== */}
+          {/* ==== 左：アプリタイトル（元の見た目） ==== */}
           <div className="flex items-center gap-2">
             <div className="h-6 w-6 rounded-md bg-emerald-700 md:h-7 md:w-7" />
             <div className="flex items-center gap-2 text-sm md:text-base">
@@ -72,158 +93,61 @@ export const Header: React.FC = () => {
             </div>
           </div>
 
-          {/* ==== 右：操作ボタン ==== */}
+          {/* ==== 右：認証状態で出し分け ==== */}
           <div className="flex items-center gap-2">
-            {/* プラン購入（モーダルを開く） */}
-            <button
-              type="button"
-              onClick={handleOpenPricing}
-              className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm hover:bg-accent"
-            >
-              <span className="hidden sm:inline">プラン購入</span>
-              <Wallet className="h-4 w-4 sm:ml-0.5" />
-            </button>
+            {!isAuthed ? (
+              // 未ログイン：Google ログイン
+              <button
+                type="button"
+                onClick={handleGoogleSignIn}
+                className="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm hover:bg-accent"
+                title="Googleでログイン"
+              >
+                <span className="i-mdi:login" />
+                <span>Googleでログイン</span>
+              </button>
+            ) : (
+              // ログイン済み：プラン購入 / 支払い設定 / ログアウト
+              <>
+                <button
+                  type="button"
+                  onClick={handleOpenPricing}
+                  className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm hover:bg-accent"
+                  title="プラン購入"
+                >
+                  <span className="hidden sm:inline">プラン購入</span>
+                  <Wallet className="h-4 w-4 sm:ml-0.5" />
+                </button>
 
-            {/* 支払い設定（Stripe ポータル） */}
-            <button
-              type="button"
-              onClick={handlePortal}
-              className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm hover:bg-accent"
-            >
-              <span className="hidden sm:inline">支払い設定</span>
-            </button>
+                <button
+                  type="button"
+                  onClick={handlePortal}
+                  className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm hover:bg-accent"
+                  title="支払い設定"
+                >
+                  <span className="hidden sm:inline">支払い設定</span>
+                </button>
 
-            {/* ログアウト */}
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm hover:bg-accent"
-              title="ログアウト"
-            >
-              <LogOut className="h-4 w-4" />
-              <span className="hidden sm:inline">ログアウト</span>
-            </button>
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm hover:bg-accent"
+                  title="ログアウト"
+                >
+                  <LogOut className="h-4 w-4" />
+                  <span className="hidden sm:inline">ログアウト</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
       </header>
 
-      {/* 料金モーダル（中央にしっかり表示・スクロール固定） */}
-      <PricingDialog
-        open={openPricing}
-        onOpenChange={setOpenPricing}
-        onBuy={handleBuy}
-      />
+      {/* 課金モーダル */}
+      <PricingDialog open={openPricing} onOpenChange={setOpenPricing} onBuy={handleBuy} />
     </>
   );
 };
 
-// どちらの import でも使えるように両方 export
-export default Header;
-  const isLoggedIn = !!user;
-
-  const handleLogout = useCallback(async () => {
-    try {
-      setBusy('logout');
-      await supabase.auth.signOut();
-      // 画面更新はアプリ側の auth 監視に任せる
-    } finally {
-      setBusy(null);
-    }
-  }, []);
-
-  const handleOpenPortal = useCallback(async () => {
-    try {
-      setBusy('portal');
-      await openPortal();
-    } catch (e) {
-      console.error(e);
-      alert('ポータルの起動に失敗しました。Stripe のポータル設定（本番）を保存済みか確認してください。');
-    } finally {
-      setBusy(null);
-    }
-  }, []);
-
-  const handleSelectPlan = useCallback(async (plan: PlanKey) => {
-    try {
-      await buy(plan); // サーバ側で price id を選択して Checkout 起動
-    } catch (e) {
-      console.error(e);
-      alert('チェックアウトの起動に失敗しました。');
-    } finally {
-      setPricingOpen(false);
-    }
-  }, []);
-
-  const creditBadge = useMemo(() => {
-    if (typeof creditsRemaining === 'number') {
-      return (
-        <span className="ml-2 rounded-full bg-emerald-700/90 text-white text-xs px-2 py-0.5">
-          残り {creditsRemaining}
-        </span>
-      );
-    }
-    return null;
-  }, [creditsRemaining]);
-
-  return (
-    <header className="w-full border-b border-gray-200 bg-white/70 backdrop-blur sticky top-0 z-40">
-      <div className="mx-auto max-w-7xl px-3 sm:px-4 md:px-6">
-        <div className="h-14 flex items-center justify-between">
-          {/* Brand */}
-          <div className="flex items-center gap-2">
-            <div className="h-7 w-7 rounded-md bg-emerald-600" />
-            <div className="text-sm font-bold tracking-wide">DRESSUP</div>
-            {creditBadge}
-          </div>
-
-          {/* Actions */}
-          <div className="flex items-center gap-2">
-            {/* プラン購入（モーダルを開く） */}
-            <button
-              type="button"
-              onClick={() => setPricingOpen(true)}
-              className="rounded-lg border border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-50 px-3 py-1.5 text-sm font-medium"
-            >
-              プラン購入
-            </button>
-
-            {/* 支払い設定（Stripe カスタマーポータル） */}
-            <button
-              type="button"
-              onClick={handleOpenPortal}
-              disabled={!isLoggedIn || busy === 'portal'}
-              className="inline-flex items-center rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-sm font-medium disabled:opacity-60"
-              title={isLoggedIn ? '支払い設定を開く' : 'ログインするとご利用いただけます'}
-            >
-              <Wallet className="h-4 w-4 mr-1.5" />
-              支払い設定
-            </button>
-
-            {/* ログアウト */}
-            {isLoggedIn && (
-              <button
-                type="button"
-                onClick={handleLogout}
-                disabled={busy === 'logout'}
-                className="ml-1 inline-flex items-center rounded-lg border border-gray-300 bg-white hover:bg-gray-50 px-3 py-1.5 text-sm"
-              >
-                <LogOut className="h-4 w-4 mr-1.5" />
-                ログアウト
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Pricing モーダル */}
-      <PricingDialog
-        open={pricingOpen}
-        onClose={() => setPricingOpen(false)}
-        onSelect={handleSelectPlan}
-      />
-    </header>
-  );
-};
-
-// 必要なら default も出す（App 側が default import していた場合の互換）
+// どちらの import 方式でも使えるように
 export default Header;
