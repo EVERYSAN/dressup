@@ -1,107 +1,148 @@
 import React from 'react';
-import { Check } from 'lucide-react';
+import { X } from 'lucide-react';
 
 type PlanKey = 'light' | 'basic' | 'pro';
 
 type Props = {
   open: boolean;
-  onClose: () => void;
-  onSelect: (plan: PlanKey) => void;
+  onOpenChange: (open: boolean) => void;
+  onBuy: (plan: PlanKey) => void;
 };
 
-const PLANS: {
-  key: PlanKey;
-  name: string;
-  priceLabel: string;
-  blurb?: string;
-  bullets: string[];
-  cta?: string;
-}[] = [
-  {
-    key: 'light',
-    name: 'ライトプラン',
-    priceLabel: '¥980 / 月',
-    blurb: 'まずはお試しに最適',
-    bullets: ['月10回まで', '標準サポート'],
-    cta: 'ライトで始める',
-  },
-  {
-    key: 'basic',
-    name: 'ベーシックプラン',
-    priceLabel: '¥1,980 / 月',
-    blurb: '日常利用にちょうどいい',
-    bullets: ['月100回まで', '優先サポート', '履歴の保存'],
-    cta: 'ベーシックに申し込む',
-  },
-  {
-    key: 'pro',
-    name: 'プロプラン',
-    priceLabel: '¥3,980 / 月',
-    blurb: 'ヘビーユース向け',
-    bullets: ['無制限*', '最優先サポート', '高度な機能'],
-    cta: 'プロに申し込む',
-  },
-];
-
-export default function PricingDialog({ open, onClose, onSelect }: Props) {
+/**
+ * 料金ダイアログ
+ * - 画面中央に固定
+ * - 背景スクロールを抑止
+ * - ダイアログ内部だけ縦スクロール可能
+ */
+export const PricingDialog: React.FC<Props> = ({ open, onOpenChange, onBuy }) => {
   if (!open) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40"
       role="dialog"
       aria-modal="true"
-      onClick={onClose}
+      onClick={() => onOpenChange(false)}
     >
+      {/* コンテンツ */}
       <div
-        className="w-full max-w-5xl rounded-2xl bg-white p-6 shadow-xl"
+        className="mx-3 w-full max-w-5xl rounded-lg bg-white shadow-xl ring-1 ring-black/10"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-xl font-bold">プランを選択</h2>
+        {/* ヘッダー */}
+        <div className="flex items-center justify-between border-b px-4 py-3 md:px-6">
+          <h2 className="text-base font-semibold md:text-lg">プラン一覧</h2>
           <button
-            className="rounded-full px-3 py-1 text-sm text-gray-500 hover:bg-gray-100"
-            onClick={onClose}
+            className="rounded p-1 hover:bg-accent"
+            onClick={() => onOpenChange(false)}
+            aria-label="閉じる"
           >
-            閉じる
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-3">
-          {PLANS.map((p) => (
-            <div
-              key={p.key}
-              className="flex flex-col rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-shadow hover:shadow-md"
-            >
-              <div className="mb-3 text-sm font-semibold text-teal-600">{p.name}</div>
-              <div className="mb-2 text-2xl font-bold">{p.priceLabel}</div>
-              {p.blurb && (
-                <p className="mb-4 text-sm leading-relaxed text-gray-600">{p.blurb}</p>
-              )}
-
-              <div className="mb-5 space-y-2">
-                {p.bullets.map((b, i) => (
-                  <div key={i} className="flex gap-2 text-sm text-gray-700">
-                    <Check className="mt-0.5 h-4 w-4 flex-none text-teal-600" />
-                    <span>{b}</span>
-                  </div>
-                ))}
-              </div>
-
-              <button
-                className="mt-auto rounded-xl bg-teal-600 px-4 py-2.5 text-white hover:bg-teal-700"
-                onClick={() => onSelect(p.key)}
-              >
-                {p.cta ?? '申し込む'}
-              </button>
-            </div>
-          ))}
+        {/* 本文（縦スクロール許可） */}
+        <div className="max-h-[80vh] overflow-y-auto px-4 py-5 md:px-6">
+          <div className="grid gap-6 md:grid-cols-3">
+            {/* ライト */}
+            <PlanCard
+              title="ライト"
+              price="¥1,500/月"
+              bullets={[
+                '100回/月　フリマアプリ出品者、小規模ECショップ　透かし解除',
+              ]}
+              features={['月100回まで', '標準サポート', '履歴の保存']}
+              cta="ライトで始める"
+              onClick={() => onBuy('light')}
+            />
+            {/* ベーシック */}
+            <PlanCard
+              title="ベーシック"
+              price="¥6,000/月"
+              bullets={[
+                '500回/月　月間数百点の商品画像を扱う店舗（古着屋・雑貨屋）向け　透かし解除',
+              ]}
+              features={['月500回まで', '優先サポート', '履歴の保存']}
+              cta="ベーシックに申し込む"
+              onClick={() => onBuy('basic')}
+            />
+            {/* プロ */}
+            <PlanCard
+              title="プロ"
+              price="¥14,000/月"
+              bullets={[
+                '1200回/月　中規模ブランド、複数店舗展開してる事業者向け　透かし解除',
+              ]}
+              features={['実質無制限*', '最優先サポート', '高度な機能']}
+              note="* 異常な負荷が見られる場合はフェアユース制限が適用されることがあります。"
+              cta="プロに申し込む"
+              onClick={() => onBuy('pro')}
+            />
+          </div>
         </div>
-
-        <p className="mt-4 text-xs text-gray-500">
-          *異常な負荷が見られる場合はフェアユース制限が適用されることがあります。
-        </p>
       </div>
     </div>
   );
-}
+};
+
+type CardProps = {
+  title: string;
+  price: string;
+  bullets: string[];
+  features: string[];
+  note?: string;
+  cta: string;
+  onClick: () => void;
+};
+
+const PlanCard: React.FC<CardProps> = ({
+  title,
+  price,
+  bullets,
+  features,
+  note,
+  cta,
+  onClick,
+}) => {
+  return (
+    <div className="flex flex-col rounded-lg border p-5 shadow-sm">
+      <div>
+        <div className="text-sm text-muted-foreground">{title}</div>
+        <div className="mt-1 text-lg font-semibold">{price}</div>
+      </div>
+
+      <ul className="mt-3 space-y-1 text-sm leading-relaxed text-muted-foreground">
+        {bullets.map((b, i) => (
+          <li key={i}>{b}</li>
+        ))}
+      </ul>
+
+      <ul className="mt-4 space-y-1 text-sm">
+        {features.map((f, i) => (
+          <li key={i} className="flex items-start gap-2">
+            <span className="mt-1 inline-block h-[6px] w-[6px] rounded-full bg-emerald-600" />
+            <span>{f}</span>
+          </li>
+        ))}
+      </ul>
+
+      {note && (
+        <p className="mt-3 text-xs text-muted-foreground">
+          {note}
+        </p>
+      )}
+
+      <button
+        type="button"
+        onClick={onClick}
+        className="mt-5 inline-flex items-center justify-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+      >
+        {cta}
+      </button>
+    </div>
+  );
+};
+
+// どちらの import でも OK
+export default PricingDialog;
