@@ -2,7 +2,6 @@ import React, { useState, useRef } from 'react';
 import { Textarea } from './ui/Textarea';
 import { Button } from './ui/Button';
 import { useAppStore } from '../store/useAppStore';
-import { useImageEditing } from '../hooks/useImageGeneration';
 import {
   Upload,
   Edit3,
@@ -15,6 +14,7 @@ import {
 import { PromptHints } from './PromptHints';
 import { cn } from '../utils/cn';
 import { resizeFileToDataURL, base64SizeMB } from '../utils/resizeImage';
+import { supabase } from '../lib/supabaseClient';
 
 export const PromptComposer: React.FC = () => {
   const {
@@ -43,8 +43,6 @@ export const PromptComposer: React.FC = () => {
   // Base はローカルで管理（不変に保つ）
   const [baseImage, setBaseImage] = useState<string | null>(null);
 
-  const { mutateAsync: edit, isPending: isEditPending } = useImageEditing();
-
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showHintsModal, setShowHintsModal] = useState(false);
@@ -60,39 +58,98 @@ export const PromptComposer: React.FC = () => {
       .reduce((s, d) => s + base64SizeMB(d as string), 0);
 
     if (approxTotalMB > 3.5) {
-      console.warn(`[DRESSUP] payload too large (~${approxTotalMB.toFixed(2)} MB). Try smaller images.`);
+      console.warn(
+        `[DRESSUP] payload too large (~${approxTotalMB.toFixed(2)} MB). Try smaller images.`
+      );
+      alert('画像が大きすぎます。もう少し小さい画像でお試しください。');
       return;
     }
 
     try {
-      const resp: any = await edit({
+      // ★ ここがポイント：Supabase の access_token を取り、Bearer で投げる
+      const { data: sessionData, error: sErr } = await supabase.auth.getSession();
+      if (sErr) throw sErr;
+
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        alert('ログインが必要です。右上のログインからサインインしてください。');
+        return;
+      }
+
+      const payload = {
         prompt,
         image1: baseImage,
         image2: editReferenceImages[0] || null,
+        // お好みでパラメータを渡したい場合
+        // temperature,
+        // seed,
+      };
+
+      const resp = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(payload),
       });
 
-      const parts = resp?.candidates?.[0]?.content?.parts;
-      const img = parts?.find((p: any) => p?.inlineData?.data)?.inlineData;
-      if (img?.data) {
-        const mime = img?.mimeType || 'image/png';
-        const dataUrl = `data:${mime};base64,${img.data}`;
-        setCanvasImage(dataUrl);
+      if (!resp.ok) {
+        // サーバ側の典型的なエラーを見やすく
+        const text = await resp.text().catch(() => '');
+        console.error('[DRESSUP] generate failed:', resp.status, text);
+        if (resp.status === 401) {
+          alert('認証エラーです。もう一度ログインしてください。');
+        } else if (resp.status === 402) {
+          alert('利用回数が上限に達しました。プランをご検討ください。');
+        } else {
+          alert(`サーバエラーが発生しました (code: ${resp.status})`);
+        }
+        return;
+        }
 
-        // 履歴に追加
-        ensureProject();
-        addEdit({
-          id: `edit-${Date.now()}`,
-          instruction: prompt,
-          parentGenerationId: null,
-          maskReferenceAsset: null,
-          outputAssets: [{ id: 'out-0', url: dataUrl }],
-          timestamp: Date.now(),
-        });
-      } else {
-        console.warn('[DRESSUP] [edit] no image in response');
+      // サーバは base64 画像を返す想定
+      type GenResponse = {
+        imageDataUrl?: string; // data:<mime>;base64,.... 形式
+        // もしくは { mimeType, data } 形式など、あなたの API 仕様に合わせて調整
+      };
+
+      const json = (await resp.json()) as GenResponse;
+
+      // 返却仕様に合わせてパース
+      let dataUrl = json?.imageDataUrl;
+
+      // もし API が { mimeType, data } で返す場合は以下のように組み立てる：
+      // if (!dataUrl && (json as any)?.mimeType && (json as any)?.data) {
+      //   dataUrl = `data:${(json as any).mimeType};base64,${(json as any).data}`;
+      // }
+
+      if (!dataUrl) {
+        console.warn('[DRESSUP] [generate] no image in response');
+        alert('画像の生成に失敗しました。もう一度お試しください。');
+        return;
       }
+
+      // キャンバスに反映
+      setCanvasImage(dataUrl);
+
+      // 履歴に追加
+      ensureProject();
+      addEdit({
+        id: `edit-${Date.now()}`,
+        instruction: prompt,
+        parentGenerationId: null,
+        maskReferenceAsset: null,
+        outputAssets: [{ id: 'out-0', url: dataUrl }],
+        timestamp: Date.now(),
+      });
+
+      // ここで UI 上の残り回数バッジを更新したい場合は、
+      // /api/me のようなエンドポイントで credits_used/credits_total を取得して
+      // store を更新するフローを入れると良いです。
     } catch (e) {
-      console.error('[DRESSUP] edit failed', e);
+      console.error('[DRESSUP] generate failed', e);
+      alert('通信に失敗しました。時間をおいて再度お試しください。');
     }
   };
 
@@ -101,7 +158,11 @@ export const PromptComposer: React.FC = () => {
     const file = event.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
       try {
-        const dataUrl = await resizeFileToDataURL(file, { maxEdge: 1024, mime: 'image/webp', quality: 0.85 });
+        const dataUrl = await resizeFileToDataURL(file, {
+          maxEdge: 1024,
+          mime: 'image/webp',
+          quality: 0.85,
+        });
         const mb = base64SizeMB(dataUrl);
         console.log(`[DRESSUP] resized upload ~${mb.toFixed(2)} MB`);
 
@@ -109,7 +170,10 @@ export const PromptComposer: React.FC = () => {
           setBaseImage(dataUrl);
           setCanvasImage(dataUrl);
         } else {
-          if (!editReferenceImages.includes(dataUrl) && editReferenceImages.length < 2) {
+          if (
+            !editReferenceImages.includes(dataUrl) &&
+            editReferenceImages.length < 2
+          ) {
             addEditReferenceImage(dataUrl);
           }
         }
@@ -149,7 +213,7 @@ export const PromptComposer: React.FC = () => {
   }
 
   const hasPrompt = currentPrompt.trim().length > 0;
-  const canEdit = hasPrompt && !!baseImage && !isEditPending;
+  const canEdit = hasPrompt && !!baseImage;
 
   return (
     <>
@@ -304,17 +368,10 @@ export const PromptComposer: React.FC = () => {
                      disabled:cursor-not-allowed sticky bottom-2"
           title="画像を編集"
         >
-          {isEditPending ? (
-            <>
-              <div className="animate-spin rounded-full h-4 w-4 mr-2 group-disabled:text-emerald-700" />
-              編集中…
-            </>
-          ) : (
-            <>
-              <Edit3 className="h-4 w-4 mr-2 group-disabled:text-emerald-700" />
-              画像を編集
-            </>
-          )}
+          <>
+            <Edit3 className="h-4 w-4 mr-2 group-disabled:text-emerald-700" />
+            画像を編集
+          </>
         </Button>
 
         {/* Advanced / Clear */}
