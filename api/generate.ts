@@ -7,20 +7,32 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 // 画像生成の擬似関数（ここをあなたの Gemini / 外部API 呼び出しに差し替え）
 async function callImageEditAPI({
-  prompt, image1, image2, temperature, seed,
-}: { prompt: string; image1: string; image2?: string | null; temperature?: number; seed?: number | null; }) {
+  prompt,
+  image1,
+  image2,
+  temperature,
+  seed,
+}: {
+  prompt: string;
+  image1: string;
+  image2?: string | null;
+  temperature?: number;
+  seed?: number | null;
+}) {
   // 必ず 40〜60 秒以内に終わらせるか、タイムアウト制御を入れること
   // ここではダミーの透明 1x1 PNG を返します
   const dummyBase64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
+
   return { data: dummyBase64, mimeType: 'image/png' };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS（必要なら）
+  // CORS（必要なら調整）
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     return res.status(204).end();
   }
 
@@ -69,7 +81,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 4) 画像生成
-    const { prompt, image1, image2 = null, temperature = 0.7, seed = null } = req.body || {};
+    const {
+      prompt,
+      image1,
+      image2 = null,
+      temperature = 0.7,
+      seed = null,
+    } = (req.body as any) || {};
+
     if (!prompt || !image1) {
       return res.status(400).json({ error: 'Missing prompt or image1' });
     }
