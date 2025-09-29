@@ -1,15 +1,30 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { LogOut, Wallet } from 'lucide-react';
-import PricingDialog from './PricingDialog';            // ← default import に固定
+import PricingDialogDefault, { PricingDialog as PricingDialogNamed } from './PricingDialog';
 import { supabase } from '../lib/supabaseClient';
 import { openPortal, buy } from '../lib/billing';
-import { useAppStore } from '../store/useAppStore';     // ← パスと export 名を確認
+// useAppStore のエクスポート形に合わせてここを変える
+//   - named export なら:   import { useAppStore } from '../store/useAppStore';
+//   - default export なら: import useAppStore from '../store/useAppStore';
+import { useAppStore } from '../store/useAppStore';
 
-export function Header() {
+// ---- 実行時ガード（import の食い違いを潰す）----
+function guardElementType<T extends object>(Comp: any, name: string): React.ComponentType<any> {
+  const ok =
+    Comp &&
+    (typeof Comp === 'function' ||
+      (typeof Comp === 'object' && (Comp as any).$$typeof && String((Comp as any).$$typeof).includes('react')));
+  if (!ok) {
+    console.error(`[Header] Invalid component for ${name}. Got:`, Comp);
+    return () => null;
+  }
+  return Comp as React.ComponentType<any>;
+}
+
+const PricingDialog = guardElementType(PricingDialogDefault ?? PricingDialogNamed, 'PricingDialog');
+
+function HeaderImpl() {
   const [pricingOpen, setPricingOpen] = useState(false);
-
-  // store 側が named export: export const useAppStore = create(...)
-  // である前提。もし default export ならここを `import useAppStore from ...` に変える。
   const { user } = useAppStore((s) => ({ user: s.user }));
 
   const remaining = useMemo(() => {
@@ -23,17 +38,19 @@ export function Header() {
 
   const handleSelectPlan = useCallback(async (plan: 'light' | 'basic' | 'pro') => {
     try {
-      await buy(plan);         // Stripe Checkout
+      await buy(plan);
       setPricingOpen(false);
     } catch (e: any) {
+      console.error('[Header] buy(plan) failed:', e);
       alert(`購入フローを開始できませんでした:\n${e?.message ?? e}`);
     }
   }, []);
 
   const handleOpenPortal = useCallback(async () => {
     try {
-      await openPortal();      // Stripe Portal
+      await openPortal();
     } catch (e: any) {
+      console.error('[Header] openPortal() failed:', e);
       alert(`支払い設定ページに進めませんでした:\n${e?.message ?? e}`);
     }
   }, []);
@@ -43,6 +60,7 @@ export function Header() {
       await supabase.auth.signOut();
       location.reload();
     } catch (e: any) {
+      console.error('[Header] logout failed:', e);
       alert(`ログアウトに失敗しました:\n${e?.message ?? e}`);
     }
   }, []);
@@ -84,11 +102,10 @@ export function Header() {
         </button>
       </div>
 
-      <PricingDialog
-        open={pricingOpen}
-        onClose={handleClosePricing}
-        onSelect={handleSelectPlan}
-      />
+      <PricingDialog open={pricingOpen} onClose={handleClosePricing} onSelect={handleSelectPlan} />
     </header>
   );
 }
+
+export const Header = HeaderImpl;
+export default HeaderImpl;
