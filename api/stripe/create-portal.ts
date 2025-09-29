@@ -1,21 +1,66 @@
+// api/stripe/create-portal.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
-import { getUserFromRequest } from '../_utils/auth';
-import { supabaseAdmin } from '../_utils/supabase';
+import { createClient } from '@supabase/supabase-js';
 
-const stripe = new Stripe(process.env.STRIPE_API_KEY!, { apiVersion: '2024-06-20' });
+const STRIPE_API_KEY = process.env.STRIPE_API_KEY!;
+const NEXT_PUBLIC_APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
+const SUPABASE_URL = process.env.SUPABASE_URL!;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+const stripe = new Stripe(STRIPE_API_KEY, { apiVersion: '2024-06-20' });
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') return res.status(405).end();
-  const user = await getUserFromRequest(req);
-  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
-  const { data, error } = await supabaseAdmin.from('users').select('stripe_customer_id').eq('id', user.id).single();
-  if (error || !data?.stripe_customer_id) return res.status(400).json({ error: 'no customer' });
+    // --- 認証（Bearer トークンで Supabase ユーザー特定）
+    const auth = req.headers.authorization || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (!token) return res.status(401).json({ error: 'Missing bearer token' });
 
-  const portal = await stripe.billingPortal.sessions.create({
-    customer: data.stripe_customer_id,
-    return_url: `${process.env.APP_URL}/settings`,
-  });
-  return res.status(200).json({ url: portal.url });
+    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+    const { data: userInfo, error: userErr } = await admin.auth.getUser(token);
+    if (userErr || !userInfo?.user) return res.status(401).json({ error: 'Invalid token' });
+
+    const uid = userInfo.user.id;
+    const email = userInfo.user.email || undefined;
+
+    // --- users テーブルから行を取得（※カラム名は id！）
+    const { data: row, error: selErr } = await admin
+      .from('users')
+      .select('id, email, stripe_customer_id')
+      .eq('id', uid)
+      .single();
+
+    if (selErr) return res.status(500).json({ error: 'DB select failed', detail: selErr.message });
+
+    // --- Stripe カスタマー確保（なければ作成して保存）
+    let customerId = row?.stripe_customer_id as string | null;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: row?.email ?? email,
+        metadata: { app_uid: uid },
+      });
+      customerId = customer.id;
+
+      const { error: updErr } = await admin
+        .from('users')
+        .update({ stripe_customer_id: customerId })
+        .eq('id', uid);
+      if (updErr) return res.status(500).json({ error: 'DB update failed', detail: updErr.message });
+    }
+
+    // --- ポータルセッション作成
+    const baseUrl = NEXT_PUBLIC_APP_URL || (req.headers.origin as string) || 'https://example.com';
+    const session = await stripe.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: `${baseUrl}/`,
+      // 機能の細かな有効化はダッシュボード側設定に依存
+    });
+
+    return res.status(200).json({ url: session.url });
+  } catch (e: any) {
+    return res.status(500).json({ error: 'Server error', detail: e?.message || String(e) });
+  }
 }
