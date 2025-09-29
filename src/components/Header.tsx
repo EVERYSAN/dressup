@@ -1,191 +1,94 @@
 // src/components/Header.tsx
-import React, { useEffect, useRef, useState } from 'react';
-import { HelpCircle, LogIn, LogOut, Wallet, ChevronDown } from 'lucide-react';
-import { InfoModal } from './InfoModal';
-import { buy } from '../lib/billing';
-import { openPortal } from '../lib/billing';
+import React, { useCallback, useMemo, useState } from 'react';
+import { LogOut, Wallet } from 'lucide-react';
+import PricingDialog from './PricingDialog';
 import { supabase } from '../lib/supabaseClient';
+import { openPortal } from '../lib/billing';
+import useAppStore from '../stores/useAppStore';
 
-function MiniBtn(
-  props: React.ButtonHTMLAttributes<HTMLButtonElement> & { icon?: React.ReactNode }
-) {
-  const { icon, children, className = '', ...rest } = props;
-  return (
-    <button
-      {...rest}
-      className={`inline-flex items-center gap-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 ${className}`}
-    >
-      {icon}
-      {children}
-    </button>
-  );
-}
+/**
+ * ヘッダー
+ * - 残り回数バッジ
+ * - プラン購入 => PricingDialog をモーダル表示
+ * - 支払い設定（Stripe カスタマーポータル）
+ * - ログアウト
+ */
+export default function Header() {
+  const [pricingOpen, setPricingOpen] = useState(false);
 
-function PlanMenu({
-  onPick,
-}: {
-  onPick: (plan: 'light' | 'basic' | 'pro') => void;
-}) {
-  // 価格やクレジット目安はUI表示用（Stripeの金額と必ず合わせる）
-  const items = [
-    { key: 'light' as const, title: 'ライト', desc: '100回/月 フリマアプリ出品者、小規模ECショップ 透かし解除', price: '¥1,500/月' },
-    { key: 'basic' as const, title: 'ベーシック', desc: '500回/月　月間数百点の商品画像を扱う店舗（古着屋・雑貨屋）向け　透かし解除', price: '¥6,000/月' },
-    { key: 'pro' as const, title: 'プロ', desc: '1200回/月　中規模ブランド、複数店舗展開してる事業者向け　透かし解除', price: '¥14,000/月' },
-  ];
-  return (
-    <div className="absolute right-0 top-full mt-2 w-56 rounded-lg border border-gray-200 bg-white shadow-lg z-50">
-      <div className="py-1">
-        {items.map((it) => (
-          <button
-            key={it.key}
-            onClick={() => onPick(it.key)}
-            className="w-full text-left px-3 py-2 hover:bg-gray-50"
-          >
-            <div className="flex items-center justify-between">
-              <div className="font-medium">{it.title}</div>
-              <div className="text-xs text-gray-500">{it.price}</div>
-            </div>
-            <div className="text-xs text-gray-500">{it.desc}</div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
+  // 残回数は store の users テーブル相当の値から算出
+  const { user } = useAppStore((s) => ({ user: s.user }));
+  const remaining = useMemo(() => {
+    const total = user?.credits_total ?? 0;
+    const used = user?.credits_used ?? 0;
+    return Math.max(0, total - used);
+  }, [user]);
 
-export const Header: React.FC = () => {
-  const [showInfoModal, setShowInfoModal] = useState(false);
-  const [isAuthed, setIsAuthed] = useState(false);
-  const [remaining, setRemaining] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
+  const handleOpenPricing = useCallback(() => setPricingOpen(true), []);
+  const handleClosePricing = useCallback(() => setPricingOpen(false), []);
 
-  // プランメニュー
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      if (!menuRef.current) return;
-      if (!menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    window.addEventListener('click', onClick);
-    return () => window.removeEventListener('click', onClick);
-  }, []);
-
-  const refreshCredits = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    const uid = session?.user?.id;
-    if (!uid) {
-      setIsAuthed(false);
-      setRemaining(null);
-      return;
-    }
-    setIsAuthed(true);
-    const { data, error } = await supabase
-      .from('users')
-      .select('credits_total, credits_used')
-      .eq('id', uid)
-      .single();
-    if (!error && data) {
-      setRemaining((data.credits_total ?? 0) - (data.credits_used ?? 0));
-    }
-  };
-
-  useEffect(() => {
-    refreshCredits();
-    const { data: sub } = supabase.auth.onAuthStateChange(() => {
-      refreshCredits();
-    });
-    return () => sub.subscription.unsubscribe();
-  }, []);
-
-  const signIn = async () => {
-    setLoading(true);
+  const handleOpenPortal = useCallback(async () => {
     try {
-      await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: { redirectTo: window.location.origin },
-      });
-    } finally {
-      setLoading(false);
+      await openPortal(); // 失敗時は内部で throw
+    } catch (e: any) {
+      alert(`支払い設定ページに進めませんでした:\n${e?.message ?? e}`);
     }
-  };
-  const signOut = async () => {
-    setLoading(true);
+  }, []);
+
+  const handleLogout = useCallback(async () => {
     try {
       await supabase.auth.signOut();
-      setIsAuthed(false);
-      setRemaining(null);
-    } finally {
-      setLoading(false);
+      // ページをリロードしてセッション反映
+      location.reload();
+    } catch (e: any) {
+      alert(`ログアウトに失敗しました:\n${e?.message ?? e}`);
     }
-  };
-
-  const pickPlan = (plan: 'light' | 'basic' | 'pro') => {
-    setMenuOpen(false);
-    buy(plan); // → Stripe Checkout へ
-  };
+  }, []);
 
   return (
-    <>
-      <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-        {/* 左：タイトル */}
-        <div className="flex items-center space-x-4">
-          <h1 className="text-xl font-semibold text-black hidden md:block">
-            DRESSUP | AI画像編集ツール
-          </h1>
-          <h1 className="text-xl font-semibold text-black md:hidden">DRESSUP</h1>
-          <div className="text-xs text-gray-500 bg-gray-800 text-white px-2 py-1 rounded">1.0</div>
-        </div>
+    <header className="flex items-center justify-between gap-3 px-4 py-3">
+      {/* 左：残回数 */}
+      <div className="flex items-center gap-2">
+        <span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">
+          残り {remaining} 回
+        </span>
+      </div>
 
-        {/* 右：購入/残数/支払い/認証/ヘルプ */}
-        <div className="flex items-center gap-8">
-          <div className="flex items-center gap-2 relative" ref={menuRef}>
-            {isAuthed ? (
-              <>
-                <span className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1 text-sm">
-                  残り {remaining ?? '-'} 回
-                </span>
+      {/* 右：操作ボタン群 */}
+      <div className="flex items-center gap-2">
+        {/* プラン購入 → PricingDialog を開く */}
+        <button
+          type="button"
+          onClick={handleOpenPricing}
+          className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium hover:bg-gray-50"
+        >
+          <span>プラン購入</span>
+        </button>
 
-                {/* プラン購入（ドロップダウン） */}
-                <MiniBtn
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setMenuOpen((v) => !v);
-                  }}
-                  icon={<ChevronDown size={16} />}
-                >
-                  プラン購入
-                </MiniBtn>
-                {menuOpen && <PlanMenu onPick={pickPlan} />}
+        {/* 支払い設定（Stripe カスタマーポータル） */}
+        <button
+          type="button"
+          onClick={handleOpenPortal}
+          className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium hover:bg-gray-50"
+          title="支払い方法の変更・解約など"
+        >
+          <Wallet className="h-4 w-4" />
+          <span>支払い設定</span>
+        </button>
 
-                {/* 支払い設定（Customer Portal） */}
-                <MiniBtn onClick={openPortal} icon={<Wallet size={16} />}>
-                  支払い設定
-                </MiniBtn>
+        {/* ログアウト */}
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium hover:bg-gray-50"
+        >
+          <LogOut className="h-4 w-4" />
+          <span>ログアウト</span>
+        </button>
+      </div>
 
-                <MiniBtn onClick={signOut} icon={<LogOut size={16} />}>
-                  ログアウト
-                </MiniBtn>
-              </>
-            ) : (
-              <MiniBtn onClick={signIn} disabled={loading} icon={<LogIn size={16} />}>
-                {loading ? '…' : 'Googleでログイン'}
-              </MiniBtn>
-            )}
-          </div>
-
-          {/* ヘルプ */}
-          <button
-            className="rounded-md p-2 hover:bg-gray-100"
-            onClick={() => setShowInfoModal(true)}
-            aria-label="ヘルプ"
-          >
-            <HelpCircle className="h-5 w-5" />
-          </button>
-        </div>
-      </header>
-
-      <InfoModal open={showInfoModal} onOpenChange={setShowInfoModal} />
-    </>
+      {/* プライシングのモーダル */}
+      <PricingDialog open={pricingOpen} onClose={handleClosePricing} />
+    </header>
   );
-};
+}
