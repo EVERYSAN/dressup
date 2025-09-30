@@ -25,39 +25,61 @@ const queryClient = new QueryClient({
 function useSupabaseBootstrap() {
   const [ready, setReady] = React.useState(false);
 
-  // 1) OAuth リダイレクトのハッシュを保険で拾う
+  // 1) 最長 2 秒で強制的に ready にするセーフティ（ネットワーク不調時にハングしない）
   React.useEffect(() => {
-    const hash = window.location.hash ?? '';
-    if (hash.includes('access_token=')) {
-      const params = new URLSearchParams(hash.slice(1));
-      const access_token = params.get('access_token');
-      const refresh_token = params.get('refresh_token');
-
-      (async () => {
-        const { data } = await supabase.auth.getSession();
-        if (!data.session && access_token && refresh_token) {
-          try {
-            await supabase.auth.setSession({ access_token, refresh_token });
-            // console.log('[AUTH] setSession success');
-          } catch (e) {
-            console.error('[AUTH] setSession failed:', e);
-          }
-        }
-        // URL からハッシュを消して綺麗に
-        history.replaceState(null, '', window.location.pathname);
-      })();
-    }
+    const t = setTimeout(() => setReady(true), 2000);
+    return () => clearTimeout(t);
   }, []);
 
-  // 2) セッション変化を監視して初期化完了へ
+  // 2) OAuth リダイレクトのハッシュを保険で拾う（例外でも ready を上げる）
   React.useEffect(() => {
-    const sub = supabase.auth.onAuthStateChange(() => {
-      // 必要ならここでストア連携など
+    (async () => {
+      try {
+        const hash = window.location.hash ?? '';
+        if (hash.includes('access_token=')) {
+          const params = new URLSearchParams(hash.slice(1));
+          const access_token = params.get('access_token');
+          const refresh_token = params.get('refresh_token');
+
+          const { data, error } = await supabase.auth.getSession();
+          if (error) console.error('[AUTH] getSession error:', error);
+
+          if (!data?.session && access_token && refresh_token) {
+            try {
+              await supabase.auth.setSession({ access_token, refresh_token });
+              console.info('[AUTH] setSession from URL hash ✓');
+            } catch (e) {
+              console.error('[AUTH] setSession failed:', e);
+            }
+          }
+
+          // ハッシュは見た目のため消す
+          history.replaceState(null, '', window.location.pathname);
+        }
+      } catch (e) {
+        console.error('[AUTH] bootstrap (hash) fatal:', e);
+      } finally {
+        // ここでは ready を上げない（下の onAuth + 最後の finally でまとめて上げる）
+      }
+    })();
+  }, []);
+
+  // 3) セッション監視 + 初期 getSession（どちらも例外でも必ず ready に到達）
+  React.useEffect(() => {
+    const sub = supabase.auth.onAuthStateChange((ev, s) => {
+      console.debug('[AUTH] state:', ev, !!s?.user);
     });
 
     (async () => {
-      await supabase.auth.getSession(); // 触っておくと初期化が早い
-      setReady(true);
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) console.error('[AUTH] getSession init error:', error);
+        console.debug('[AUTH] initial session user:', !!data?.session?.user);
+      } catch (e) {
+        console.error('[AUTH] getSession fatal:', e);
+      } finally {
+        setReady(true); // ← ここで確実に UI を出す
+      }
     })();
 
     return () => sub.data.subscription.unsubscribe();
@@ -65,6 +87,7 @@ function useSupabaseBootstrap() {
 
   return ready;
 }
+
 
 // -------------------------------
 // アプリ本体（元のフル幅レイアウトを維持）
