@@ -73,7 +73,8 @@ const HeaderImpl: React.FC = () => {
       await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: window.location.origin, // 例: https://www.dressupai.app
+          // ★ここを origin + '/#' に
+          redirectTo: window.location.origin + '/#', // 例: https://www.dressupai.app/# で返す
         },
       });
     } finally {
