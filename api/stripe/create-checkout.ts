@@ -14,6 +14,34 @@ const PRICE_PRO = process.env.STRIPE_PRICE_PRO!;
 
 const stripe = new Stripe(STRIPE_API_KEY, { apiVersion: '2024-06-20' });
 
+async function ensureCustomer(
+  stripe: Stripe,
+  admin: ReturnType<typeof createClient>,
+  uid: string,
+  email?: string | null,
+  existingId?: string | null
+): Promise<string> {
+  // 既存IDが今のモードで有効か確認（モード不一致ならここで落ちる）
+  if (existingId) {
+    try {
+      const c = await stripe.customers.retrieve(existingId);
+      if (!('deleted' in c && c.deleted)) return existingId;
+    } catch (e: any) {
+      // resource_missing などは作り直しへ
+    }
+  }
+
+  // 作成してDBに保存
+  const customer = await stripe.customers.create({
+    email: email ?? undefined,
+    metadata: { app_uid: uid },
+  });
+
+  await admin.from('users').update({ stripe_customer_id: customer.id }).eq('id', uid);
+  return customer.id;
+}
+
+
 const planToPrice = (plan: string) => {
   switch (plan) {
     case 'light':
