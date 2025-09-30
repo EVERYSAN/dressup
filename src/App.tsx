@@ -89,7 +89,7 @@ export default function App() {
 
   if (!ready) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-white">
         <div className="text-sm text-gray-500">Initializing…</div>
       </div>
     );
