@@ -1,6 +1,6 @@
 // src/components/ImageCanvas.tsx
 import React, { useRef, useEffect, useState, useMemo } from 'react';
-import { Stage, Layer, Image as KonvaImage, Line } from 'react-konva';
+import { Stage, Layer, Image as KonvaImage, Line, Text, Rect, Group } from 'react-konva';
 import { useAppStore } from '../store/useAppStore';
 import { Button } from './ui/Button';
 import { RotateCcw, Download, Eye, EyeOff, Eraser } from 'lucide-react';
@@ -23,6 +23,7 @@ export const ImageCanvas: React.FC = () => {
     isGenerating,
     brushSize,
     setBrushSize,
+    subscriptionTier = 'free',
   } = useAppStore();
 
   // === Refs
@@ -148,6 +149,8 @@ export const ImageCanvas: React.FC = () => {
       document.body.removeChild(link);
     }
   };
+
+  const showUiWatermark = String(subscriptionTier).toLowerCase() === 'free';
 
   return (
     <div className="flex flex-col h-full">
@@ -315,6 +318,29 @@ export const ImageCanvas: React.FC = () => {
               />
             )}
           </Layer>
+          {/* === 無料のみ見た目の透かし（保存画像には乗らない） === */}
+          {showUiWatermark && image && (
+            <Layer listening={false}>
+              {/* 右上CTA（クリック不可。リンクにするなら listening を true にし、onClick で PricingDialog を開く） */}
+              <Group x={stageSize.width - 240} y={12} listening={false}>
+                <Rect width={228} height={32} fill="rgba(16,185,129,0.12)" cornerRadius={8} />
+                <Text x={10} y={8} text="透かし解除は ライト以上" fontSize={14} fill="#065f46" />
+              </Group>
+              {/* 斜めの薄い文字列 */}
+              {[-200, 80, 360, 640].map((x, i) => (
+                <Text
+                  key={i}
+                  x={x}
+                  y={120 + i * 160}
+                  rotation={-30}
+                  text="DRESSUPAI.APP — FREE"
+                  fontSize={28}
+                  opacity={0.15}
+                  fill="#000"
+                />
+              ))}
+            </Layer>
+          )}
         </Stage>
       </div>
 
