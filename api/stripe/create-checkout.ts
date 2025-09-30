@@ -82,20 +82,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (selErr) return res.status(500).json({ error: 'DB select failed', detail: selErr.message });
 
-    let customerId = row?.stripe_customer_id as string | null;
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: row?.email ?? email,
-        metadata: { app_uid: uid },
-      });
-      customerId = customer.id;
-
-      const { error: updErr } = await admin
-        .from('users')
-        .update({ stripe_customer_id: customerId })
-        .eq('id', uid);
-      if (updErr) return res.status(500).json({ error: 'DB update failed', detail: updErr.message });
-    }
+    const customerId = await ensureCustomer(
+    stripe,
+    admin,
+    uid,
+    row?.email ?? email,
+    row?.stripe_customer_id
+ );
 
     const baseUrl = NEXT_PUBLIC_APP_URL || (req.headers.origin as string) || 'https://example.com';
 
