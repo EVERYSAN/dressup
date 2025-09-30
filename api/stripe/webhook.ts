@@ -4,6 +4,10 @@ import Stripe from 'stripe';
 import getRawBody from 'raw-body';
 import { createClient } from '@supabase/supabase-js';
 
+// 署名検証は raw body が必須
+export const config = { api: { bodyParser: false } };
+
+// ---- Stripe / Supabase 初期化 ----
 const stripe = new Stripe(process.env.STRIPE_API_KEY!, {
   apiVersion: '2024-06-20',
 });
@@ -11,158 +15,140 @@ const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET!;
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-const supa = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
 
-// ★ 価格ID → プラン名・付与回数 の対応
-const PRICE_TO_PLAN: Record<string, { plan: 'light'|'basic'|'pro'; credits: number }> = {
-  [process.env.STRIPE_PRICE_LIGHT!]: { plan: 'light', credits: 50  },   // 月50回
-  [process.env.STRIPE_PRICE_BASIC!]: { plan: 'basic', credits: 100 },   // 月100回
-  [process.env.STRIPE_PRICE_PRO!]:   { plan: 'pro',   credits: 300 },   // 月300回
-};
+// ---- Price → プラン/付与回数 マップ（※各環境の Price ID を env から）----
+const PRICE_LIGHT = process.env.STRIPE_PRICE_LIGHT!;
+const PRICE_BASIC = process.env.STRIPE_PRICE_BASIC!;
+const PRICE_PRO   = process.env.STRIPE_PRICE_PRO!;
 
-// free解約時の既定回数
+type Plan = 'free' | 'light' | 'basic' | 'pro';
+function mapPrice(priceId: string): { plan: Plan; credits: number } | null {
+  switch (priceId) {
+    case PRICE_LIGHT: return { plan: 'light', credits: 100 };
+    case PRICE_BASIC: return { plan: 'basic', credits: 500 };
+    case PRICE_PRO:   return { plan: 'pro',   credits: 1200 };
+    default: return null;
+  }
+}
 const FREE_CREDITS = 10;
 
-async function upsertUserPlanById({
-  userId,
-  email,
-  plan,
-  creditsTotal,
-}: {
-  userId: string;
-  email?: string | null;
-  plan: 'free'|'light'|'basic'|'pro';
-  creditsTotal: number;
-}) {
-  // users.id 基準で upsert
-  const { error } = await supa
+// ---- ユーザー更新（stripe_customer_id で1行更新）----
+async function setUserPlanByCustomer(
+  customerId: string,
+  plan: Plan,
+  creditsTotal: number,
+  periodEnd?: number | null,
+) {
+  const { error } = await admin
     .from('users')
-    .upsert(
-      {
-        id: userId,
-        email: email ?? undefined,
-        plan,
-        credits_total: creditsTotal,
-      },
-      { onConflict: 'id' }
-    );
+    .update({
+      plan,
+      credits_total: creditsTotal,
+      credits_used: 0,
+      period_end: periodEnd ?? null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('stripe_customer_id', customerId);
 
-  if (error) {
-    console.error('[webhook] upsert users failed', error);
-    throw new Error(error.message);
-  }
+  if (error) throw new Error(`DB update failed: ${error.message}`);
+}
+
+// ---- 価格IDの取得を“必ず成功”させるためのヘルパー ----
+async function getSubscriptionPriceId(subOrId: string | Stripe.Subscription) {
+  const sub =
+    typeof subOrId === 'string'
+      ? await stripe.subscriptions.retrieve(subOrId)
+      : subOrId;
+
+  // 先頭アイテムの price.id を採用（単一価格の想定）
+  return sub.items.data[0]?.price?.id || '';
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Stripe 署名検証には raw body が必須
+  // ---- Stripe 署名検証（raw body 必須）----
   let event: Stripe.Event;
   try {
-    const rawBody = (await getRawBody(req)).toString('utf8');
-    const signature = req.headers['stripe-signature'] as string;
-    event = stripe.webhooks.constructEvent(rawBody, signature, WEBHOOK_SECRET);
+    const raw = (await getRawBody(req)).toString('utf8');
+    const sig = req.headers['stripe-signature'] as string;
+    event = stripe.webhooks.constructEvent(raw, sig, WEBHOOK_SECRET);
   } catch (err: any) {
-    console.error('[webhook] signature verify failed', err?.message || err);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+    console.error('[webhook] signature verify failed:', err?.message || err);
+    return res.status(400).send(`Webhook Error: ${err?.message ?? 'invalid signature'}`);
   }
 
   try {
     switch (event.type) {
+      // 1) Checkout完了。サブスクの subscription を取り直して price.id を確定
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
-        // ここで metadata.user_id を使ってアプリのユーザーと結びつける
-        const userId = (session.metadata?.user_id as string) || '';
-        const priceId = session?.line_items?.data?.[0]?.price?.id // 拡張されている場合
-          || (session.metadata?.price_id as string)               // 自分で入れた場合
-          || '';
-
-        if (!userId) {
-          console.warn('[webhook] no metadata.user_id on session');
-          break;
+        if (session.mode === 'subscription' && session.subscription && session.customer) {
+          const priceId = await getSubscriptionPriceId(session.subscription);
+          const map = mapPrice(priceId);
+          if (map) {
+            await setUserPlanByCustomer(String(session.customer), map.plan, map.credits,
+              (typeof session.subscription === 'string'
+                ? (await stripe.subscriptions.retrieve(session.subscription)).current_period_end
+                : session.subscription.current_period_end)
+            );
+          } else {
+            console.warn('[webhook] unknown price on checkout.session.completed:', priceId);
+          }
         }
-
-        // 価格ID → プランに変換
-        const planInfo = PRICE_TO_PLAN[priceId];
-        if (!planInfo) {
-          console.warn('[webhook] unknown price id', priceId);
-          break;
-        }
-
-        await upsertUserPlanById({
-          userId,
-          email: session.customer_details?.email ?? null,
-          plan: planInfo.plan,
-          creditsTotal: planInfo.credits,
-        });
         break;
       }
 
+      // 2) サブスク作成/更新。こちらでも常に反映して冪等化
+      case 'customer.subscription.created':
       case 'customer.subscription.updated': {
         const sub = event.data.object as Stripe.Subscription;
-
-        // ユーザーIDは Checkout 作成時に metadata に同梱しておくのが王道
-        const userId = (sub.metadata?.user_id as string) || '';
-        if (!userId) {
-          console.warn('[webhook] no metadata.user_id on subscription.updated');
-          break;
-        }
-
-        // アクティブな最上位価格を拾う
-        const priceId =
-          (sub.items?.data?.[0]?.price?.id as string) || '';
-
-        // ステータスに応じた処理
-        if (sub.status === 'active' || sub.status === 'trialing') {
-          const planInfo = PRICE_TO_PLAN[priceId];
-          if (planInfo) {
-            await upsertUserPlanById({
-              userId,
-              plan: planInfo.plan,
-              creditsTotal: planInfo.credits,
-              email: undefined,
-            });
+        if (sub.customer) {
+          const priceId = await getSubscriptionPriceId(sub);
+          const map = mapPrice(priceId);
+          if (map) {
+            await setUserPlanByCustomer(String(sub.customer), map.plan, map.credits, sub.current_period_end);
+          } else {
+            console.warn('[webhook] unknown price on subscription.*:', priceId);
           }
-        } else if (
-          sub.status === 'canceled' ||
-          sub.status === 'incomplete_expired' ||
-          sub.status === 'unpaid' ||
-          sub.status === 'past_due'
-        ) {
-          // free に落とす
-          await upsertUserPlanById({
-            userId,
-            plan: 'free',
-            creditsTotal: FREE_CREDITS,
-            email: undefined,
-          });
         }
         break;
       }
 
+      // 3) 請求成功（更新課金時など）。ここでもリセット/延長を確実に
+      case 'invoice.payment_succeeded': {
+        const inv = event.data.object as Stripe.Invoice;
+        if (inv.subscription && inv.customer) {
+          const priceId = await getSubscriptionPriceId(inv.subscription);
+          const map = mapPrice(priceId);
+          if (map) {
+            const sub = await stripe.subscriptions.retrieve(
+              typeof inv.subscription === 'string' ? inv.subscription : inv.subscription.id
+            );
+            await setUserPlanByCustomer(String(inv.customer), map.plan, map.credits, sub.current_period_end);
+          }
+        }
+        break;
+      }
+
+      // 4) 解約・失効 → free に戻す
       case 'customer.subscription.deleted': {
         const sub = event.data.object as Stripe.Subscription;
-        const userId = (sub.metadata?.user_id as string) || '';
-        if (!userId) break;
-
-        await upsertUserPlanById({
-          userId,
-          plan: 'free',
-          creditsTotal: FREE_CREDITS,
-          email: undefined,
-        });
+        if (sub.customer) {
+          await setUserPlanByCustomer(String(sub.customer), 'free', FREE_CREDITS, null);
+        }
         break;
       }
 
       default:
-        // 使わないイベントは 200 で OK
+        // ハンドリングしないイベントは 200 でOK
         break;
     }
 
     return res.status(200).json({ received: true });
   } catch (e: any) {
-    console.error('[webhook] handler error', e?.message || e);
+    console.error('[webhook] handler error:', e?.message || e);
     return res.status(500).json({ error: 'webhook failed', detail: String(e?.message || e) });
   }
 }
