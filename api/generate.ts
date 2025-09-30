@@ -51,68 +51,34 @@ function splitDataUrl(dataUrl: string): { mime: string; base64: string } | null 
 }
 
 // === [ADD] 透かしSVG（斜めタイル） ===
-function watermarkSVGSingle(
+function watermarkSVG(
   w: number,
   h: number,
-  text = 'https://www.dressupai.app',
-  pos: 'br' | 'tr' | 'bl' | 'tl' | 'center' = 'br'
+  text = 'DRESSUPAI.APP — FREE · dressupai.app'
 ) {
-  const base = Math.max(w, h);
-  // 文字サイズを少し大きめに（長辺の1/10〜1/12）
-  const fontSize = Math.round(Math.max(20, Math.min(46, base / 11)));
+  // 文字はやや小さく、タイルは大きめにして密度を下げる
+  const base = Math.min(w, h);
+  const fontSize = Math.round(Math.max(16, Math.min(30, base / 34)));
 
-  const margin = Math.round(Math.max(16, base / 60));
-  // 背景ピルの内側余白
-  const padX = Math.round(fontSize * 0.6);
-  const padY = Math.round(fontSize * 0.35);
+  // 透明度を下げる（前: 0.14/0.14 → 今: 0.10/0.08）
+  const fill = 'rgba(0,0,0,0.10)';
+  const stroke = 'rgba(255,255,255,0.08)';
 
-  // いったん右下基準の座標を作ってから分岐
-  let anchor: 'start' | 'middle' | 'end' = 'end';
-  let x = w - margin, y = h - margin;
-  if (pos === 'tr') { x = w - margin; y = margin + fontSize; anchor = 'end'; }
-  if (pos === 'bl') { x = margin; y = h - margin; anchor = 'start'; }
-  if (pos === 'tl') { x = margin; y = margin + fontSize; anchor = 'start'; }
-  if (pos === 'center') { x = w / 2; y = h / 2; anchor = 'middle'; }
-
-  // 文字色は薄い黒＋白縁、背景は半透明の黒で読みやすく
-  const fill = 'rgba(0,0,0,0.85)';       // 文字色（濃いめ）
-  const stroke = 'rgba(255,255,255,0.35)'; // 白縁
-  const bg = 'rgba(0,0,0,0.25)';           // ピルの背景
-
+  // タイルの1枚を大きくして間隔を広げる（前: 320x120 → 今: 560x220）
+  // 斜め角度もちょい浅く（前: -30 → 今: -24）で視覚密度ダウン
   return `
 <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
-  <style>
-    text { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
-  </style>
-
-  <!-- テキストの横幅を測るために <text> を一度定義 -->
   <defs>
-    <text id="wmtext" font-size="${fontSize}" text-anchor="${anchor}"
-          fill="${fill}" stroke="${stroke}" stroke-width="${Math.max(1, Math.round(fontSize * 0.08))}">
-      ${text}
-    </text>
+    <pattern id="wm" width="560" height="220" patternUnits="userSpaceOnUse"
+             patternTransform="rotate(-24)">
+      <text x="0" y="120"
+        font-family="Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
+        font-size="${fontSize}" fill="${fill}" stroke="${stroke}" stroke-width="1.1">
+        ${text}
+      </text>
+    </pattern>
   </defs>
-
-  <!-- 背景ピル（角丸矩形）。アンカーに応じて位置合わせ -->
-  <g>
-    <use href="#wmtext" x="${x}" y="${y}" visibility="hidden"/>
-    <rect x="0" y="0" rx="${Math.round(fontSize * 0.6)}" ry="${Math.round(fontSize * 0.6)}"
-          fill="${bg}">
-      <animate attributeName="x" dur="0.001s" fill="freeze"
-        from="0" to="${
-          anchor === 'end'   ? x - padX - 0 /* 後で width で上書き */ :
-          anchor === 'start' ? x - 0 :
-          x - 0
-        }"/>
-      <animate attributeName="y" dur="0.001s" fill="freeze"
-        from="0" to="${ y - fontSize - padY }"/>
-      <animate attributeName="width" dur="0.001s" fill="freeze"
-        from="0" to="${ (text.length * fontSize * 0.55) + padX * 2 }"/>
-      <animate attributeName="height" dur="0.001s" fill="freeze"
-        from="0" to="${ fontSize + padY * 2 }"/>
-    </rect>
-    <use href="#wmtext" x="${x}" y="${y}"/>
-  </g>
+  <rect width="100%" height="100%" fill="url(#wm)"/>
 </svg>`;
 }
 
@@ -335,9 +301,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const meta = await img.metadata();
       const w = meta.width ?? 1024;
       const h = meta.height ?? 1024;
-      const svg = Buffer.from(
-        watermarkSVGSingle(w, h, 'https://www.dressupai.app', 'br') // 右下に1行
-      );
+      const svg = Buffer.from(watermarkSVG(w, h));
       outBuffer = await img
         .composite([{ input: svg, top: 0, left: 0 }]) // 斜めタイルで全面透かし
         .png({ quality: 92 })                         // 出力はPNGに統一
