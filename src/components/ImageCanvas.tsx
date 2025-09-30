@@ -150,7 +150,7 @@ export const ImageCanvas: React.FC = () => {
     }
   };
 
-  const showUiWatermark = String(subscriptionTier).toLowerCase() === 'free';
+  const showUiWatermark = String(subscriptionTier || 'free').toLowerCase() === 'free';
 
   return (
     <div className="flex flex-col h-full">
