@@ -1,6 +1,8 @@
 // api/generate.ts
+import sharp from 'sharp';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import Stripe from 'stripe';
 
 /**
  * 必須環境変数
@@ -10,6 +12,18 @@ import { createClient } from '@supabase/supabase-js';
  * 任意
  * - GEMINI_IMAGE_MODEL（例: gemini-2.5-flash-image-preview）
  */
+
+export const config = { runtime: 'nodejs' };
+
+const STRIPE_KEY = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_API_KEY || '';
+
+// Admin client（無ければ後段で無料扱いへフォールバック）
+const supabaseAdmin =
+  SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    : null;
+
+const stripe = STRIPE_KEY ? new Stripe(STRIPE_KEY, { apiVersion: '2024-06-20' }) : null;
 
 const API_KEY = process.env.GEMINI_API_KEY!;
 const SUPABASE_URL = process.env.SUPABASE_URL!;
@@ -36,6 +50,66 @@ function splitDataUrl(dataUrl: string): { mime: string; base64: string } | null 
   if (base64.length < 100) return null;
   return { mime: 'image/png', base64 };
 }
+
+// === [ADD] 透かしSVG（斜めタイル） ===
+function watermarkSVG(w: number, h: number, text = 'DRESSUPAI.APP — FREE · dressupai.app') {
+  const fontSize = Math.round(Math.max(18, Math.min(36, w / 48)));
+  const fill = 'rgba(0,0,0,0.14)';
+  const stroke = 'rgba(255,255,255,0.14)';
+  return `
+<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
+  <defs>
+    <pattern id="wm" width="320" height="120" patternUnits="userSpaceOnUse" patternTransform="rotate(-30)">
+      <text x="0" y="60" font-family="Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
+        font-size="${fontSize}" fill="${fill}" stroke="${stroke}" stroke-width="1.2">${text}</text>
+    </pattern>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#wm)"/>
+</svg>`;
+}
+
+// === [ADD] 無料判定（Supabase/Stripe） ===
+// Bearer JWT → profiles 参照 → （あれば）Stripe購読 → 無ければ無料扱い
+async function isFreePlan(req: import('@vercel/node').VercelRequest): Promise<boolean> {
+  try {
+    if (!supabaseAdmin) return true;
+
+    const bearer = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    if (!bearer) return true;
+
+    const { data: authData, error: authErr } = await supabaseAdmin.auth.getUser(bearer);
+    if (authErr || !authData?.user) return true;
+    const userId = authData.user.id;
+
+    // ← profiles のテーブル/カラム名はあなたの実装に合わせてください
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('subscription_tier,stripe_customer_id')
+      .eq('id', userId)
+      .maybeSingle();
+
+    // tierで早期判定（DBに tier が入る運用）
+    const tier = String(profile?.subscription_tier || '').toLowerCase();
+    if (['lite', 'basic', 'pro'].includes(tier)) return false;
+
+    // Stripeのアクティブ購読チェック
+    const customerId = profile?.stripe_customer_id;
+    if (stripe && customerId) {
+      const subs = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 10 });
+      const hasActive = subs.data.some(s =>
+        ['active', 'trialing', 'past_due', 'unpaid'].includes(s.status as any)
+      );
+      if (hasActive) return false;
+    }
+
+    return true;
+  } catch (e) {
+    console.error('[generate] isFreePlan error:', e);
+    return true; // 失敗時は安全側
+  }
+}
+
+
 
 // v1beta / v1 の順で ListModels を試し、使えるモデル名を確定
 async function resolveUsableModel(rawModel: string): Promise<{ modelId: string; apiBase: 'v1beta' | 'v1' }> {
