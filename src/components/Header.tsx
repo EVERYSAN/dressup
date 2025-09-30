@@ -56,6 +56,30 @@ export const Header: React.FC = () => {
     });
     return () => sub.subscription.unsubscribe();
   }, []);
+    // ✅ Checkout/Portal から戻った直後に残数を再取得（webhook遅延を吸収）
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const cameFromCheckout = sp.get('checkout') === 'success';
+    const cameFromPortal = sp.get('portal') === 'return';
+    if (!cameFromCheckout && !cameFromPortal) return;
+
+    // すぐ1回
+    refreshCredits();
+
+    // webhook反映まで数秒ポーリング（最大10秒）
+    const tick = setInterval(refreshCredits, 2000);
+    const stop = setTimeout(() => {
+      clearInterval(tick);
+      // 見た目のためにクエリを消す（再来訪時に誤検知しない）
+      try { window.history.replaceState({}, '', window.location.pathname); } catch {}
+    }, 10000);
+
+    return () => {
+      clearInterval(tick);
+      clearTimeout(stop);
+    };
+  }, []);
+
 
   const signIn = async () => {
     setLoading(true);
