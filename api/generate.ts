@@ -51,34 +51,39 @@ function splitDataUrl(dataUrl: string): { mime: string; base64: string } | null 
 }
 
 // === [ADD] 透かしSVG（斜めタイル） ===
-function watermarkSVG(
+function watermarkSVGSingle(
   w: number,
   h: number,
-  text = 'DRESSUPAI.APP — FREE · dressupai.app'
+  text = 'https://www.dressupai.app',
+  pos: 'br' | 'tr' | 'bl' | 'tl' | 'center' = 'br'
 ) {
-  // 文字はやや小さく、タイルは大きめにして密度を下げる
-  const base = Math.min(w, h);
-  const fontSize = Math.round(Math.max(16, Math.min(30, base / 34)));
+  // 画像サイズに応じて可変（長辺の ~1/12）
+  const base = Math.max(w, h);
+  const fontSize = Math.round(Math.max(18, Math.min(40, base / 12)));
 
-  // 透明度を下げる（前: 0.14/0.14 → 今: 0.10/0.08）
-  const fill = 'rgba(0,0,0,0.10)';
-  const stroke = 'rgba(255,255,255,0.08)';
+  // 位置計算
+  const margin = Math.round(Math.max(12, base / 80));
+  let x = margin, y = margin + fontSize;
+  if (pos === 'tr') { x = w - margin; y = margin + fontSize; }
+  if (pos === 'br') { x = w - margin; y = h - margin; }
+  if (pos === 'bl') { x = margin; y = h - margin; }
+  if (pos === 'center') { x = w / 2; y = h / 2; }
 
-  // タイルの1枚を大きくして間隔を広げる（前: 320x120 → 今: 560x220）
-  // 斜め角度もちょい浅く（前: -30 → 今: -24）で視覚密度ダウン
+  const anchor = (pos === 'tr' || pos === 'br') ? 'end'
+                : (pos === 'center' ? 'middle' : 'start');
+
+  // 控えめな透明度＆白縁取りで背景に馴染ませつつ視認性確保
+  const fill = 'rgba(0,0,0,0.12)';
+  const stroke = 'rgba(255,255,255,0.10)';
+
   return `
 <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
-  <defs>
-    <pattern id="wm" width="560" height="220" patternUnits="userSpaceOnUse"
-             patternTransform="rotate(-24)">
-      <text x="0" y="120"
-        font-family="Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
-        font-size="${fontSize}" fill="${fill}" stroke="${stroke}" stroke-width="1.1">
-        ${text}
-      </text>
-    </pattern>
-  </defs>
-  <rect width="100%" height="100%" fill="url(#wm)"/>
+  <text x="${x}" y="${y}"
+    text-anchor="${anchor}"
+    font-family="Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
+    font-size="${fontSize}" fill="${fill}" stroke="${stroke}" stroke-width="1.6">
+    ${text}
+  </text>
 </svg>`;
 }
 
@@ -301,7 +306,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const meta = await img.metadata();
       const w = meta.width ?? 1024;
       const h = meta.height ?? 1024;
-      const svg = Buffer.from(watermarkSVG(w, h)); // ②で追加したSVG関数
+      const svg = Buffer.from(
+        watermarkSVGSingle(w, h, 'https://www.dressupai.app', 'br') // 右下に1行
+      );
       outBuffer = await img
         .composite([{ input: svg, top: 0, left: 0 }]) // 斜めタイルで全面透かし
         .png({ quality: 92 })                         // 出力はPNGに統一
