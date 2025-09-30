@@ -15,13 +15,20 @@ if (!url || !anon) {
   console.error('[SUPABASE] Missing env. VITE_SUPABASE_URL/ANON_KEY (or SUPABASE_URL/ANON_KEY)');
 }
 
-export const supabase = createClient(url!, anon!, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true, // ← ここが超重要
-  },
-});
+export const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL!,
+  import.meta.env.VITE_SUPABASE_ANON_KEY!,
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      // これが重要（#access_token, #refresh_token を自動で拾って保存してくれる）
+      detectSessionInUrl: true,
+      // Google から hash で返すフローを使う
+      flowType: 'implicit',
+    },
+  }
+);
 
 // 起動時に1回、現在のセッションを強ログ
 (async () => {
