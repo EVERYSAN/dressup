@@ -64,6 +64,9 @@ type AppState = {
 
   selectedGenerationId: string | null;
   selectGeneration: (id: string | null) => void;
+
+  subscriptionTier: 'free' as 'free'|'light'|'basic'|'pro',
+  setSubscriptionTier: (t: 'free'|'light'|'basic'|'pro') => void;
 };
 
 /* =========
@@ -74,6 +77,9 @@ export const useAppStore = create<AppState>()(
     /* Prompt / params */
     currentPrompt: '',
     setCurrentPrompt: (v) => set({ currentPrompt: v }),
+
+    subscriptionTier: 'free',
+    setSubscriptionTier: (t) => set({ subscriptionTier: t }),
 
     temperature: 0.7,
     setTemperature: (v) => set({ temperature: v }),
