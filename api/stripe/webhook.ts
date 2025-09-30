@@ -107,10 +107,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (sub.customer) {
           const priceId = await getSubscriptionPriceId(sub);
           const map = mapPrice(priceId);
-          if (map) {
-            await setUserPlanByCustomer(String(sub.customer), map.plan, map.credits, sub.current_period_end);
-          } else {
-            console.warn('[webhook] unknown price on subscription.*:', priceId);
+          // cancel_at_period_end のときはプランを即 free にしない（期末まで有効）
+          // ここでは period_end だけ更新する等、軽い反映に留める
+          if (map && ['active','trialing','past_due','unpaid'].includes(sub.status)) {
+            await admin.from('users')
+              .update({
+                // plan は反映してもOK（UI で「解約予定」表示ができる）
+                plan: map.plan,
+                period_end: sub.current_period_end,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('stripe_customer_id', String(sub.customer));
           }
         }
         break;
@@ -120,13 +127,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       case 'invoice.payment_succeeded': {
         const inv = event.data.object as Stripe.Invoice;
         if (inv.subscription && inv.customer) {
-          const priceId = await getSubscriptionPriceId(inv.subscription);
+          const sub = await stripe.subscriptions.retrieve(
+            typeof inv.subscription === 'string' ? inv.subscription : inv.subscription.id
+          );
+          const priceId = (sub.items.data[0]?.price?.id) || '';
           const map = mapPrice(priceId);
           if (map) {
-            const sub = await stripe.subscriptions.retrieve(
-              typeof inv.subscription === 'string' ? inv.subscription : inv.subscription.id
-            );
             await setUserPlanByCustomer(String(inv.customer), map.plan, map.credits, sub.current_period_end);
+            // setUserPlanByCustomer は credits_used=0 を行う実装のままでOK
           }
         }
         break;
