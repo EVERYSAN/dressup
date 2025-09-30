@@ -25,6 +25,7 @@ function MiniBtn(
 
 export const Header: React.FC = () => {
   const setSubscriptionTier = useAppStore((s) => s.setSubscriptionTier);
+  const subscriptionTier = useAppStore((s) => s.subscriptionTier);
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [isAuthed, setIsAuthed] = useState(false);
   const [remaining, setRemaining] = useState<number | null>(null);
@@ -32,6 +33,23 @@ export const Header: React.FC = () => {
 
   // ← 追加：料金モーダルの開閉
   const [showPricing, setShowPricing] = useState(false);
+
+  type Tier = 'free' | 'light' | 'basic' | 'pro';
+
+  const tierLabel: Record<Tier, string> = {
+    free:  'FREE',
+    light: 'ライト',
+    basic: 'ベーシック',
+    pro:   'プロ',
+  };
+
+  // Tailwind の色はお好みで調整可
+  const tierClass: Record<Tier, string> = {
+    free:  'bg-gray-100 text-gray-600 border border-gray-200',
+    light: 'bg-sky-50 text-sky-700 border border-sky-200',
+    basic: 'bg-amber-50 text-amber-700 border border-amber-200',
+    pro:   'bg-violet-50 text-violet-700 border border-violet-200',
+  };
 
   const refreshCredits = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -137,6 +155,13 @@ export const Header: React.FC = () => {
           <div className="flex items-center gap-2">
             {isAuthed ? (
               <>
+                {/* プラン表示 */}
+            　  <span
+                  className={`rounded-full px-3 py-1 text-sm ${tierClass[subscriptionTier || 'free']}`}
+                  title="現在のご利用プラン"
+                >
+                  {tierLabel[subscriptionTier || 'free']}
+                </span>
                 <span className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1 text-sm">
                   残り {remaining ?? '-'} 回
                 </span>
