@@ -16,6 +16,10 @@ import Stripe from 'stripe';
 export const config = { runtime: 'nodejs' };
 
 const STRIPE_KEY = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_API_KEY || '';
+const API_KEY = process.env.GEMINI_API_KEY!;
+const SUPABASE_URL = process.env.SUPABASE_URL!;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const ENV_MODEL = (process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image-preview').trim();
 
 // Admin client（無ければ後段で無料扱いへフォールバック）
 const supabaseAdmin =
@@ -24,11 +28,6 @@ const supabaseAdmin =
     : null;
 
 const stripe = STRIPE_KEY ? new Stripe(STRIPE_KEY, { apiVersion: '2024-06-20' }) : null;
-
-const API_KEY = process.env.GEMINI_API_KEY!;
-const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const ENV_MODEL = (process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image-preview').trim();
 
 // よくある打ち間違いの補正
 function normalizeModel(m: string) {
@@ -277,8 +276,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!imageBase64) {
       return res.status(500).json({ error: 'No image in response', text: textOut.join('\n') });
     }
+    // === 無料プランなら透かし焼き込み ===
+    const mustWatermark = await isFreePlan(req); // ②で追加した関数をそのまま利用
+    let outBuffer = Buffer.from(imageBase64, 'base64');
+    let outMime = 'image/png';
 
-    return res.status(200).json({ image: { data: imageBase64, mimeType: imageMime } });
+    if (mustWatermark) {
+      const img = sharp(outBuffer);
+      const meta = await img.metadata();
+      const w = meta.width ?? 1024;
+      const h = meta.height ?? 1024;
+      const svg = Buffer.from(watermarkSVG(w, h)); // ②で追加したSVG関数
+      outBuffer = await img
+        .composite([{ input: svg, top: 0, left: 0 }]) // 斜めタイルで全面透かし
+        .png({ quality: 92 })                         // 出力はPNGに統一
+        .toBuffer();
+      outMime = 'image/png';
+    } else {
+      // 有料は元のMIMEを尊重（必要ならPNGに変えてもOK）
+      outMime = imageMime || 'image/png';
+    }
+
+    const outBase64 = outBuffer.toString('base64');
+    return res.status(200).json({
+      image: { data: outBase64, mimeType: outMime },
+      watermarked: mustWatermark, // ← 任意（UIで“無料表示”制御に使える）
+    });
   } catch (e: any) {
     return res.status(500).json({ error: 'Server error', detail: String(e?.message || e) });
   }
