@@ -70,10 +70,10 @@ function watermarkSVG(w: number, h: number, text = 'DRESSUPAI.APP — FREE · dr
 
 // === [ADD] 無料判定（Supabase/Stripe） ===
 // Bearer JWT → profiles 参照 → （あれば）Stripe購読 → 無ければ無料扱い
+// 旧: profiles を参照していた isFreePlan を丸ごと置き換え
 async function isFreePlan(req: import('@vercel/node').VercelRequest): Promise<boolean> {
   try {
     if (!supabaseAdmin) return true;
-
     const bearer = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
     if (!bearer) return true;
 
@@ -81,33 +81,31 @@ async function isFreePlan(req: import('@vercel/node').VercelRequest): Promise<bo
     if (authErr || !authData?.user) return true;
     const userId = authData.user.id;
 
-    // ← profiles のテーブル/カラム名はあなたの実装に合わせてください
-    const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('subscription_tier,stripe_customer_id')
+    // ✅ users を見る（webhook で plan/stripe_customer_id を更新している前提）
+    const { data: uRow, error: uErr } = await supabaseAdmin
+      .from('users')
+      .select('plan, stripe_customer_id')
       .eq('id', userId)
       .maybeSingle();
+    if (uErr) return true;
 
-    // tierで早期判定（DBに tier が入る運用）
-    const tier = String(profile?.subscription_tier || '').toLowerCase();
-    if (['lite', 'basic', 'pro'].includes(tier)) return false;
+    const plan = String(uRow?.plan || '').toLowerCase();
+    if (['light', 'basic', 'pro'].includes(plan)) return false;
 
-    // Stripeのアクティブ購読チェック
-    const customerId = profile?.stripe_customer_id;
+    // 一応 Stripe にも確認（stripe_customer_id があれば）
+    const customerId = uRow?.stripe_customer_id;
     if (stripe && customerId) {
       const subs = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 10 });
-      const hasActive = subs.data.some(s =>
-        ['active', 'trialing', 'past_due', 'unpaid'].includes(s.status as any)
-      );
+      const hasActive = subs.data.some(s => ['active', 'trialing', 'past_due', 'unpaid'].includes(s.status as any));
       if (hasActive) return false;
     }
-
     return true;
   } catch (e) {
     console.error('[generate] isFreePlan error:', e);
-    return true; // 失敗時は安全側
+    return true;
   }
 }
+
 
 
 
