@@ -51,16 +51,31 @@ function splitDataUrl(dataUrl: string): { mime: string; base64: string } | null 
 }
 
 // === [ADD] 透かしSVG（斜めタイル） ===
-function watermarkSVG(w: number, h: number, text = 'DRESSUPAI.APP — FREE · dressupai.app') {
-  const fontSize = Math.round(Math.max(18, Math.min(36, w / 48)));
-  const fill = 'rgba(0,0,0,0.14)';
-  const stroke = 'rgba(255,255,255,0.14)';
+function watermarkSVG(
+  w: number,
+  h: number,
+  text = 'DRESSUPAI.APP — FREE · dressupai.app'
+) {
+  // 文字はやや小さく、タイルは大きめにして密度を下げる
+  const base = Math.min(w, h);
+  const fontSize = Math.round(Math.max(16, Math.min(30, base / 34)));
+
+  // 透明度を下げる（前: 0.14/0.14 → 今: 0.10/0.08）
+  const fill = 'rgba(0,0,0,0.10)';
+  const stroke = 'rgba(255,255,255,0.08)';
+
+  // タイルの1枚を大きくして間隔を広げる（前: 320x120 → 今: 560x220）
+  // 斜め角度もちょい浅く（前: -30 → 今: -24）で視覚密度ダウン
   return `
 <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
   <defs>
-    <pattern id="wm" width="320" height="120" patternUnits="userSpaceOnUse" patternTransform="rotate(-30)">
-      <text x="0" y="60" font-family="Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
-        font-size="${fontSize}" fill="${fill}" stroke="${stroke}" stroke-width="1.2">${text}</text>
+    <pattern id="wm" width="560" height="220" patternUnits="userSpaceOnUse"
+             patternTransform="rotate(-24)">
+      <text x="0" y="120"
+        font-family="Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
+        font-size="${fontSize}" fill="${fill}" stroke="${stroke}" stroke-width="1.1">
+        ${text}
+      </text>
     </pattern>
   </defs>
   <rect width="100%" height="100%" fill="url(#wm)"/>
