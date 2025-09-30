@@ -5,21 +5,7 @@ import { InfoModal } from './InfoModal';
 import { buy, openPortal } from '../lib/billing';
 import { supabase } from '../lib/supabaseClient';
 import PricingDialog from './PricingDialog'; // ← 追加
-import { useAppStore } from '../store/useAppStore';
 
-const Header = () => {
-  const setRemainingCredits = useAppStore((s) => s.setRemainingCredits);
-  const setSubscriptionTier = useAppStore((s) => s.setSubscriptionTier);
-
-  const refreshCredits = async () => {
-    // 例: あなたが今使っている API/SQL で users の plan と credits を取得
-    const res = await fetch('/api/credits', { headers: { Authorization: `Bearer ${token}` }});
-    const json = await res.json(); // { remaining, plan, ... } を返すようにしておく
-    // 既存：残数の更新
-    setRemainingCredits?.(json.remaining);
-    // ✅ 追加：プランの更新（light/basic/pro/free）
-    if (json.plan) setSubscriptionTier?.(String(json.plan).toLowerCase());
-  };
 
 function MiniBtn(
   props: React.ButtonHTMLAttributes<HTMLButtonElement> & { icon?: React.ReactNode }
