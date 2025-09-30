@@ -85,7 +85,7 @@ export default function App() {
     return () => sub.data.subscription.unsubscribe();
   }, []);
 
-  const appClass = useMemo(() => cn('bg-gray-900 min-h-screen'), []);
+  const appClass = useMemo(() => cn('min-h-screen bg-white'), []);
 
   if (!ready) {
     return (
