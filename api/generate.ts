@@ -57,33 +57,62 @@ function watermarkSVGSingle(
   text = 'https://www.dressupai.app',
   pos: 'br' | 'tr' | 'bl' | 'tl' | 'center' = 'br'
 ) {
-  // 画像サイズに応じて可変（長辺の ~1/12）
   const base = Math.max(w, h);
-  const fontSize = Math.round(Math.max(18, Math.min(40, base / 12)));
+  // 文字サイズを少し大きめに（長辺の1/10〜1/12）
+  const fontSize = Math.round(Math.max(20, Math.min(46, base / 11)));
 
-  // 位置計算
-  const margin = Math.round(Math.max(12, base / 80));
-  let x = margin, y = margin + fontSize;
-  if (pos === 'tr') { x = w - margin; y = margin + fontSize; }
-  if (pos === 'br') { x = w - margin; y = h - margin; }
-  if (pos === 'bl') { x = margin; y = h - margin; }
-  if (pos === 'center') { x = w / 2; y = h / 2; }
+  const margin = Math.round(Math.max(16, base / 60));
+  // 背景ピルの内側余白
+  const padX = Math.round(fontSize * 0.6);
+  const padY = Math.round(fontSize * 0.35);
 
-  const anchor = (pos === 'tr' || pos === 'br') ? 'end'
-                : (pos === 'center' ? 'middle' : 'start');
+  // いったん右下基準の座標を作ってから分岐
+  let anchor: 'start' | 'middle' | 'end' = 'end';
+  let x = w - margin, y = h - margin;
+  if (pos === 'tr') { x = w - margin; y = margin + fontSize; anchor = 'end'; }
+  if (pos === 'bl') { x = margin; y = h - margin; anchor = 'start'; }
+  if (pos === 'tl') { x = margin; y = margin + fontSize; anchor = 'start'; }
+  if (pos === 'center') { x = w / 2; y = h / 2; anchor = 'middle'; }
 
-  // 控えめな透明度＆白縁取りで背景に馴染ませつつ視認性確保
-  const fill = 'rgba(0,0,0,0.12)';
-  const stroke = 'rgba(255,255,255,0.10)';
+  // 文字色は薄い黒＋白縁、背景は半透明の黒で読みやすく
+  const fill = 'rgba(0,0,0,0.85)';       // 文字色（濃いめ）
+  const stroke = 'rgba(255,255,255,0.35)'; // 白縁
+  const bg = 'rgba(0,0,0,0.25)';           // ピルの背景
 
   return `
 <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
-  <text x="${x}" y="${y}"
-    text-anchor="${anchor}"
-    font-family="Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
-    font-size="${fontSize}" fill="${fill}" stroke="${stroke}" stroke-width="1.6">
-    ${text}
-  </text>
+  <style>
+    text { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+  </style>
+
+  <!-- テキストの横幅を測るために <text> を一度定義 -->
+  <defs>
+    <text id="wmtext" font-size="${fontSize}" text-anchor="${anchor}"
+          fill="${fill}" stroke="${stroke}" stroke-width="${Math.max(1, Math.round(fontSize * 0.08))}">
+      ${text}
+    </text>
+  </defs>
+
+  <!-- 背景ピル（角丸矩形）。アンカーに応じて位置合わせ -->
+  <g>
+    <use href="#wmtext" x="${x}" y="${y}" visibility="hidden"/>
+    <rect x="0" y="0" rx="${Math.round(fontSize * 0.6)}" ry="${Math.round(fontSize * 0.6)}"
+          fill="${bg}">
+      <animate attributeName="x" dur="0.001s" fill="freeze"
+        from="0" to="${
+          anchor === 'end'   ? x - padX - 0 /* 後で width で上書き */ :
+          anchor === 'start' ? x - 0 :
+          x - 0
+        }"/>
+      <animate attributeName="y" dur="0.001s" fill="freeze"
+        from="0" to="${ y - fontSize - padY }"/>
+      <animate attributeName="width" dur="0.001s" fill="freeze"
+        from="0" to="${ (text.length * fontSize * 0.55) + padX * 2 }"/>
+      <animate attributeName="height" dur="0.001s" fill="freeze"
+        from="0" to="${ fontSize + padY * 2 }"/>
+    </rect>
+    <use href="#wmtext" x="${x}" y="${y}"/>
+  </g>
 </svg>`;
 }
 
