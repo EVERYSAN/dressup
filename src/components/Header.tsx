@@ -4,9 +4,9 @@ import { HelpCircle, LogIn, LogOut, Wallet } from 'lucide-react';
 import { InfoModal } from './InfoModal';
 import { openPortal, buy } from '../lib/billing';
 import { supabase } from '../lib/supabaseClient';
-import PricingDialog from './PricingDialog'; // ← 料金表モーダル（default export 前提）
+import PricingDialog from './PricingDialog'; // default export
 
-/** 小さめの汎用ボタン */
+/** ヘッダー内の小さめボタン */
 function MiniBtn(
   props: React.ButtonHTMLAttributes<HTMLButtonElement> & { icon?: React.ReactNode }
 ) {
@@ -22,7 +22,7 @@ function MiniBtn(
   );
 }
 
-export const Header: React.FC = () => {
+const HeaderImpl: React.FC = () => {
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [openPricing, setOpenPricing] = useState(false);
 
@@ -30,7 +30,7 @@ export const Header: React.FC = () => {
   const [remaining, setRemaining] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // 残回数を Supabase から取得
+  /** Supabase から残クレジットを取得 */
   const refreshCredits = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     const uid = session?.user?.id;
@@ -40,47 +40,61 @@ export const Header: React.FC = () => {
       return;
     }
     setIsAuthed(true);
+
     const { data, error } = await supabase
       .from('users')
       .select('credits_total, credits_used')
-      .eq('id', uid) // 既存スキーマに合わせる
+      .eq('id', uid) // ← users.id が auth.uid と一致する想定
       .single();
+
     if (!error && data) {
-      setRemaining((data.credits_total ?? 0) - (data.credits_used ?? 0));
+      const left = (data.credits_total ?? 0) - (data.credits_used ?? 0);
+      setRemaining(left);
     }
   };
 
+  /** 初回 & 認証状態の変化で残回数を更新。ハッシュも掃除。 */
   useEffect(() => {
+    // Supabase の OAuth リダイレクト後に付く #access_token などを消す
+    if (window.location.hash.includes('access_token')) {
+      history.replaceState(null, '', window.location.origin + window.location.pathname);
+    }
+
     refreshCredits();
+
     const { data: sub } = supabase.auth.onAuthStateChange(() => refreshCredits());
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // 認証
+  /** ログイン / ログアウト */
   const signIn = async () => {
     setLoading(true);
     try {
       await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: window.location.origin },
+        options: {
+          redirectTo: window.location.origin, // 例: https://www.dressupai.app
+        },
       });
     } finally {
       setLoading(false);
     }
   };
+
   const signOut = async () => {
     setLoading(true);
     try {
       await supabase.auth.signOut();
       setIsAuthed(false);
       setRemaining(null);
-      // location.reload(); // 必要ならリロード
+      // 必要ならリロード:
+      // location.reload();
     } finally {
       setLoading(false);
     }
   };
 
-  // 料金表内の「申し込む」ボタンから呼ばれる
+  /** 料金表モーダルからの購入 */
   const handleBuy = async (plan: 'light' | 'basic' | 'pro') => {
     try {
       await buy(plan);
@@ -90,7 +104,7 @@ export const Header: React.FC = () => {
     }
   };
 
-  // 支払いポータル
+  /** Stripe カスタマーポータル */
   const handlePortal = async () => {
     try {
       await openPortal();
@@ -103,13 +117,10 @@ export const Header: React.FC = () => {
   return (
     <>
       <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-        {/* 左：タイトル（以前の見た目を踏襲） */}
-        <div className="flex items-center space-x-4">
-          <h1 className="text-xl font-semibold text-black hidden md:block">
-            DRESSUP | AI画像編集ツール
-          </h1>
-          <h1 className="text-xl font-semibold text-black md:hidden">DRESSUP</h1>
-          <div className="text-xs text-gray-500 bg-gray-800 text-white px-2 py-1 rounded">1.0</div>
+        {/* 左：タイトル（元の見た目） */}
+        <div className="flex items-center space-x-3">
+          <h1 className="text-xl font-semibold text-black">DRESSUP | AI画像編集ツール</h1>
+          <span className="text-[11px] rounded bg-gray-900 text-white px-2 py-0.5">1.0</span>
         </div>
 
         {/* 右：残回数 / プラン購入(モーダル) / 支払い設定 / 認証 / ヘルプ */}
@@ -122,12 +133,12 @@ export const Header: React.FC = () => {
                   残り {remaining ?? '-'} 回
                 </span>
 
-                {/* プラン購入 → 料金モーダルを開く */}
+                {/* プラン購入（モーダル表示） */}
                 <MiniBtn onClick={() => setOpenPricing(true)}>
                   プラン購入
                 </MiniBtn>
 
-                {/* 支払い設定（Stripe Customer Portal） */}
+                {/* 支払い設定（Stripe ポータル） */}
                 <MiniBtn onClick={handlePortal} icon={<Wallet size={16} />}>
                   支払い設定
                 </MiniBtn>
@@ -155,17 +166,14 @@ export const Header: React.FC = () => {
         </div>
       </header>
 
-      {/* 使い方 */}
+      {/* 使い方モーダル */}
       <InfoModal open={showInfoModal} onOpenChange={setShowInfoModal} />
 
-      {/* 料金表モーダル（中央配置・スクロール固定） */}
-      <PricingDialog
-        open={openPricing}
-        onOpenChange={setOpenPricing}
-        onBuy={handleBuy}
-      />
+      {/* 料金表モーダル（中央表示） */}
+      <PricingDialog open={openPricing} onOpenChange={setOpenPricing} onBuy={handleBuy} />
     </>
   );
 };
 
-export default Header;
+export const Header = HeaderImpl;   // named export
+export default HeaderImpl;          // default export
