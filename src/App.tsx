@@ -1,91 +1,204 @@
 // src/App.tsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { supabase } from './lib/supabaseClient';
+import { cn } from './utils/cn';
 import { Header } from './components/Header';
 import { PromptComposer } from './components/PromptComposer';
 import { ImageCanvas } from './components/ImageCanvas';
 import { HistoryPanel } from './components/HistoryPanel';
-import { cn } from './utils/cn';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { useAppStore } from './store/useAppStore';
+import { supabase } from './lib/supabaseClient';
 
-const qc = new QueryClient();
+// -------------------------------
+// QueryClient
+// -------------------------------
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { staleTime: 5 * 60 * 1000, retry: 2 } },
+});
 
-export default function App() {
-  const [ready, setReady] = useState(false);
-  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
+// -------------------------------
+// 認証の“保険” + 初期化待ち
+//   - #access_token / #refresh_token がURLハッシュにいたら手動で setSession
+//   - onAuthStateChange で状態を同期
+// -------------------------------
+function useSupabaseBootstrap() {
+  const [ready, setReady] = React.useState(false);
 
-  // --- ここが今日のポイント ---
-  // 1) ハッシュに access_token/refresh_token が居たら「手動で」取り込む
-  //    detectSessionInUrl が走らなかった場合の保険
-  useEffect(() => {
+  // 1) OAuth リダイレクトのハッシュを保険で拾う
+  React.useEffect(() => {
     const hash = window.location.hash ?? '';
     if (hash.includes('access_token=')) {
-      const params = new URLSearchParams(hash.slice(1)); // remove '#'
+      const params = new URLSearchParams(hash.slice(1));
       const access_token = params.get('access_token');
       const refresh_token = params.get('refresh_token');
 
-      // eslint-disable-next-line no-console
-      console.log('[AUTH] OAuth redirect hash detected', {
-        hasAccessToken: !!access_token,
-        hasRefreshToken: !!refresh_token,
-      });
-
-      // Supabase が拾えていない場合にのみ setSession を試す
       (async () => {
         const { data } = await supabase.auth.getSession();
         if (!data.session && access_token && refresh_token) {
           try {
-            const { data: setRes, error } = await supabase.auth.setSession({
-              access_token,
-              refresh_token,
-            });
-            if (error) throw error;
-            // eslint-disable-next-line no-console
-            console.log('[AUTH] setSession success:', {
-              user: setRes.session?.user?.email,
-            });
+            await supabase.auth.setSession({ access_token, refresh_token });
+            // console.log('[AUTH] setSession success');
           } catch (e) {
-            // eslint-disable-next-line no-console
             console.error('[AUTH] setSession failed:', e);
           }
         }
-
-        // URL を綺麗にしておく（ハッシュ削除）
+        // URL からハッシュを消して綺麗に
         history.replaceState(null, '', window.location.pathname);
       })();
     }
   }, []);
 
-  // 2) 常に auth の変化を拾って UI/ストアを更新
-  useEffect(() => {
-    const sub = supabase.auth.onAuthStateChange(async (event, session) => {
-      // eslint-disable-next-line no-console
-      console.log('[AUTH] onAuthStateChange:', event, {
-        hasSession: !!session,
-        user: session?.user?.email,
-      });
-      setSessionEmail(session?.user?.email ?? null);
-      if (event === 'TOKEN_REFRESHED') {
-        // 参考: ここで必要に応じてトースト等
-      }
+  // 2) セッション変化を監視して初期化完了へ
+  React.useEffect(() => {
+    const sub = supabase.auth.onAuthStateChange(() => {
+      // 必要ならここでストア連携など
     });
 
-    // 起動直後の状態も反映
     (async () => {
-      const { data } = await supabase.auth.getSession();
-      setSessionEmail(data.session?.user?.email ?? null);
-      // eslint-disable-next-line no-console
-      console.log('[AUTH] initial session:', {
-        hasSession: !!data.session,
-        user: data.session?.user?.email,
-      });
+      await supabase.auth.getSession(); // 触っておくと初期化が早い
       setReady(true);
     })();
 
     return () => sub.data.subscription.unsubscribe();
   }, []);
 
-  const appClass = useMemo(() => cn('min-h-screen bg-white'), []);
+  return ready;
+}
+
+// -------------------------------
+// アプリ本体（元のフル幅レイアウトを維持）
+// -------------------------------
+function AppContent() {
+  useKeyboardShortcuts();
+
+  const {
+    showPromptPanel, setShowPromptPanel,
+    showHistory, setShowHistory,
+  } = useAppStore();
+
+  const [isMobile, setIsMobile] = React.useState<boolean>(
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  );
+
+  React.useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
+  React.useEffect(() => {
+    if (isMobile) { setShowPromptPanel(false); setShowHistory(false); }
+  }, [isMobile, setShowPromptPanel, setShowHistory]);
+
+  const closeAllOverlays = () => { setShowPromptPanel(false); setShowHistory(false); };
+
+  return (
+    <div className="app-viewport bg-white text-gray-900 flex flex-col font-sans">
+      <Header />
+
+      {/* コンテンツ（モバイルはタブ分の下余白を追加） */}
+      <div className={cn("flex-1 flex min-h-0 relative", isMobile && "with-tabbar-pad")}>
+        {/* 左（編集） */}
+        {isMobile ? (
+          <>
+            {showPromptPanel && <div className="mobile-backdrop md:hidden" onClick={closeAllOverlays} />}
+            <div
+              className={cn(
+                "md:static md:h-full md:overflow-y-auto md:block",
+                showPromptPanel ? "block" : "hidden",
+                "mobile-overlay mobile-overlay--left md:mobile-overlay:unset md:w-auto md:bg-transparent"
+              )}
+            >
+              <PromptComposer />
+            </div>
+          </>
+        ) : (
+          <div
+            className={cn(
+              "flex-shrink-0 transition-all duration-300 h-full overflow-y-auto border-r border-gray-200",
+              !showPromptPanel ? "w-10" : "w-[320px]"
+            )}
+          >
+            <PromptComposer />
+          </div>
+        )}
+
+        {/* 中央（生成結果 = キャンバス） */}
+        <div className="flex-1 min-w-0">
+          <ImageCanvas />
+        </div>
+
+        {/* 右（履歴） */}
+        {isMobile ? (
+          <>
+            {showHistory && <div className="mobile-backdrop md:hidden" onClick={closeAllOverlays} />}
+            <div
+              className={cn(
+                "md:static md:h-full md:overflow-y-auto md:block",
+                showHistory ? "block" : "hidden",
+                "mobile-overlay mobile-overlay--right md:mobile-overlay:unset md:w-auto md:bg-transparent"
+              )}
+            >
+              <HistoryPanel />
+            </div>
+          </>
+        ) : (
+          <div className="flex-shrink-0 h-full overflow-y-auto border-l border-gray-200 w-[320px]">
+            <HistoryPanel />
+          </div>
+        )}
+      </div>
+
+      {/* PC のみフッター（モバイルはタブと重なるので非表示） */}
+      {isMobile ? null : (
+        <footer className="border-t border-gray-200 bg-white text-xs text-gray-500 px-4 py-3">
+          <div>© 2025 EVERYSAN — Modified from NanoBananaEditor (AGPLv3)</div>
+          <div className="mt-1">
+            <a className="underline" href="https://github.com/EVERYSAN/dressup" target="_blank" rel="noreferrer">Source</a>
+            {' · '}
+            <a className="underline" href="/LICENSE" target="_blank" rel="noreferrer">License</a>
+            {' · '}No warranty.
+          </div>
+        </footer>
+      )}
+
+      {/* モバイル：下部タブ（生成結果 / 編集 / 履歴） */}
+      {isMobile && (
+        <nav className="mobile-tabbar md:hidden">
+          <button
+            className={cn("mobile-tabbar__btn", !showPromptPanel && !showHistory && "mobile-tabbar__btn--active")}
+            onClick={() => { setShowPromptPanel(false); setShowHistory(false); }}
+            aria-label="生成結果"
+          >
+            🖼️ <span>生成結果</span>
+          </button>
+          <button
+            className={cn("mobile-tabbar__btn", showPromptPanel && "mobile-tabbar__btn--active")}
+            onClick={() => { setShowPromptPanel(v => !v); setShowHistory(false); }}
+            aria-label="編集"
+          >
+            ✂ <span>編集</span>
+          </button>
+          <button
+            className={cn("mobile-tabbar__btn", showHistory && "mobile-tabbar__btn--active")}
+            onClick={() => { setShowHistory(v => !v); setShowPromptPanel(false); }}
+            aria-label="履歴"
+          >
+            🕘 <span>履歴</span>
+          </button>
+        </nav>
+      )}
+    </div>
+  );
+}
+
+// -------------------------------
+// ルート
+// -------------------------------
+function App() {
+  const ready = useSupabaseBootstrap();
 
   if (!ready) {
     return (
@@ -96,27 +209,10 @@ export default function App() {
   }
 
   return (
-    <QueryClientProvider client={qc}>
-      <div className={appClass}>
-        <Header />
-        {/* 必要なら現在のログイン状態をデバッグ表示（消してOK） */}
-        {import.meta.env.DEV && (
-          <div className="fixed bottom-2 left-2 rounded bg-black/70 px-2 py-1 text-[11px] text-white">
-            auth: {sessionEmail ?? 'guest'}
-          </div>
-        )}
-        <main className="mx-auto grid max-w-screen-2xl grid-cols-12 gap-3 p-3">
-          <section className="col-span-3">
-            <PromptComposer />
-          </section>
-          <section className="col-span-6">
-            <ImageCanvas />
-          </section>
-          <aside className="col-span-3">
-            <HistoryPanel />
-          </aside>
-        </main>
-      </div>
+    <QueryClientProvider client={queryClient}>
+      <AppContent />
     </QueryClientProvider>
   );
 }
+
+export default App;
