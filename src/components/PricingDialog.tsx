@@ -50,9 +50,9 @@ export const PricingDialog: React.FC<Props> = ({ open, onOpenChange, onBuy }) =>
               title="ライト"
               price="¥1,500/月"
               bullets={[
-                '100回/月　フリマアプリ出品者、小規模ECショップ　透かし解除',
+                'フリマアプリ出品者、小規模ECショップ向け',
               ]}
-              features={['月100回まで', '標準サポート', '履歴の保存']}
+              features={['100回/月','透かし解除']}
               cta="ライトで始める"
               onClick={() => onBuy('light')}
             />
@@ -61,9 +61,9 @@ export const PricingDialog: React.FC<Props> = ({ open, onOpenChange, onBuy }) =>
               title="ベーシック"
               price="¥6,000/月"
               bullets={[
-                '500回/月　月間数百点の商品画像を扱う店舗（古着屋・雑貨屋）向け　透かし解除',
+                '月間数百点の商品画像を扱う店舗（古着屋・雑貨屋）向け',
               ]}
-              features={['月500回まで', '優先サポート', '履歴の保存']}
+              features={['500回/月','透かし解除']}
               cta="ベーシックに申し込む"
               onClick={() => onBuy('basic')}
             />
@@ -72,10 +72,9 @@ export const PricingDialog: React.FC<Props> = ({ open, onOpenChange, onBuy }) =>
               title="プロ"
               price="¥14,000/月"
               bullets={[
-                '1200回/月　中規模ブランド、複数店舗展開してる事業者向け　透かし解除',
+                '中規模ブランド、複数店舗展開してる事業者向け',
               ]}
-              features={['実質無制限*', '最優先サポート', '高度な機能']}
-              note="* 異常な負荷が見られる場合はフェアユース制限が適用されることがあります。"
+              features={['1200回/月','透かし解除']}
               cta="プロに申し込む"
               onClick={() => onBuy('pro')}
             />
