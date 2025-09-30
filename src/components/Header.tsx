@@ -5,6 +5,7 @@ import { InfoModal } from './InfoModal';
 import { buy, openPortal } from '../lib/billing';
 import { supabase } from '../lib/supabaseClient';
 import PricingDialog from './PricingDialog'; // ← 追加
+import { useAppStore } from '../store/useAppStore';
 
 
 function MiniBtn(
@@ -23,6 +24,7 @@ function MiniBtn(
 }
 
 export const Header: React.FC = () => {
+  const setSubscriptionTier = useAppStore((s) => s.setSubscriptionTier);
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [isAuthed, setIsAuthed] = useState(false);
   const [remaining, setRemaining] = useState<number | null>(null);
@@ -37,16 +39,18 @@ export const Header: React.FC = () => {
     if (!uid) {
       setIsAuthed(false);
       setRemaining(null);
+      setSubscriptionTier?.('free');  // ログアウト時は free に戻す
       return;
     }
     setIsAuthed(true);
-    const { data, error } = await supabase
-      .from('users')
-      .select('credits_total, credits_used')
+    const { data, error } = await supabase.from('users')
+      .select('credits_total, credits_used, plan')   // ← plan を一緒に取得
       .eq('id', uid)
       .single();
     if (!error && data) {
       setRemaining((data.credits_total ?? 0) - (data.credits_used ?? 0));
+      const tier = String(data.plan ?? 'free').toLowerCase() as any;
+      setSubscriptionTier?.(tier);    // ← store へ反映：light/basic/pro なら透かしOFF
     }
   };
 
