@@ -4,63 +4,97 @@ import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
 const STRIPE_API_KEY = process.env.STRIPE_API_KEY!;
-const NEXT_PUBLIC_APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
+const NEXT_PUBLIC_APP_URL = process.env.NEXT_PUBLIC_APP_URL || '';
 const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const stripe = new Stripe(STRIPE_API_KEY, { apiVersion: '2024-06-20' });
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  try {
-    if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
+// --- CORS（プリフライトを許可）
+function withCors(res: VercelResponse) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+}
 
-    // --- 認証（Bearer トークンで Supabase ユーザー特定）
+// 既存のIDが別モード等で無効なら作り直してDB保存
+async function ensureCustomer(
+  admin: ReturnType<typeof createClient>,
+  uid: string,
+  email?: string | null,
+  existingId?: string | null
+): Promise<string> {
+  if (existingId) {
+    try {
+      const c = await stripe.customers.retrieve(existingId);
+      if (!('deleted' in c && c.deleted)) return existingId;
+    } catch (e: any) {
+      // resource_missing 等 → 作り直しへ
+      console.warn('[portal] invalid customer on this mode:', existingId, e?.message);
+    }
+  }
+  const customer = await stripe.customers.create({
+    email: email ?? undefined,
+    metadata: { app_uid: uid },
+  });
+  const { error: updErr } = await admin
+    .from('users')
+    .update({ stripe_customer_id: customer.id })
+    .eq('id', uid);
+  if (updErr) throw new Error(`DB update failed: ${updErr.message}`);
+  return customer.id;
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  withCors(res);
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
+
+  try {
+    // --- 認証（Bearer）
     const auth = req.headers.authorization || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
     if (!token) return res.status(401).json({ error: 'Missing bearer token' });
 
-    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
     const { data: userInfo, error: userErr } = await admin.auth.getUser(token);
     if (userErr || !userInfo?.user) return res.status(401).json({ error: 'Invalid token' });
 
     const uid = userInfo.user.id;
     const email = userInfo.user.email || undefined;
 
-    // --- users テーブルから行を取得（※カラム名は id！）
+    // --- users 取得
     const { data: row, error: selErr } = await admin
       .from('users')
       .select('id, email, stripe_customer_id')
       .eq('id', uid)
       .single();
-
     if (selErr) return res.status(500).json({ error: 'DB select failed', detail: selErr.message });
 
-    // --- Stripe カスタマー確保（なければ作成して保存）
-    let customerId = row?.stripe_customer_id as string | null;
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: row?.email ?? email,
-        metadata: { app_uid: uid },
-      });
-      customerId = customer.id;
+    // --- 顧客IDを確定（モード不一致も自己修復）
+    const customerId = await ensureCustomer(admin, uid, row?.email ?? email, row?.stripe_customer_id);
 
-      const { error: updErr } = await admin
-        .from('users')
-        .update({ stripe_customer_id: customerId })
-        .eq('id', uid);
-      if (updErr) return res.status(500).json({ error: 'DB update failed', detail: updErr.message });
-    }
+    // --- return_url（Header が ?portal=return をトリガに再フェッチする）
+    const base =
+      NEXT_PUBLIC_APP_URL ||
+      (req.headers.origin as string) ||
+      (req.headers.host ? `https://${req.headers.host}` : 'https://www.dressupai.app');
+    const returnUrl = `${base}/?portal=return`;
 
-    // --- ポータルセッション作成
-    const baseUrl = NEXT_PUBLIC_APP_URL || (req.headers.origin as string) || 'https://example.com';
+    // --- Portal セッション
     const session = await stripe.billingPortal.sessions.create({
       customer: customerId,
-      return_url: `${baseUrl}/`,
-      // 機能の細かな有効化はダッシュボード側設定に依存
+      return_url: returnUrl,
+      // 詳細の表示/機能はダッシュボード側の Portal 設定に従う
     });
 
     return res.status(200).json({ url: session.url });
   } catch (e: any) {
+    console.error('[portal] error:', e?.message || e);
+    // Stripe のエラーなら detail をそのまま返す
+    if (e && e.type && typeof e.type === 'string') {
+      return res.status(500).json({ error: 'Stripe error', detail: e.message });
+    }
     return res.status(500).json({ error: 'Server error', detail: e?.message || String(e) });
   }
 }
