@@ -65,7 +65,7 @@ type AppState = {
   selectedGenerationId: string | null;
   selectGeneration: (id: string | null) => void;
 
-  subscriptionTier: 'free' as 'free'|'light'|'basic'|'pro',
+  subscriptionTier: 'free' | 'light' | 'basic' | 'pro',
   setSubscriptionTier: (t: 'free'|'light'|'basic'|'pro') => void;
 };
 
