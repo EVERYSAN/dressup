@@ -1,7 +1,7 @@
 // api/stripe/create-portal.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
-import { createClient } from '@supabase/supabase-js';
+import { createClient , SupabaseClient  } from '@supabase/supabase-js';
 
 const STRIPE_API_KEY = process.env.STRIPE_API_KEY!;
 const NEXT_PUBLIC_APP_URL = process.env.NEXT_PUBLIC_APP_URL || '';
@@ -19,7 +19,7 @@ function withCors(res: VercelResponse) {
 
 // 既存のIDが別モード等で無効なら作り直してDB保存
 async function ensureCustomer(
-  admin: ReturnType<typeof createClient>,
+  admin: SupabaseClient<any, any, any> | any,
   uid: string,
   email?: string | null,
   existingId?: string | null
@@ -37,9 +37,9 @@ async function ensureCustomer(
     email: email ?? undefined,
     metadata: { app_uid: uid },
   });
-  const { error: updErr } = await admin
+  const { error: updErr } = await (admin as any)
     .from('users')
-    .update({ stripe_customer_id: customer.id })
+    .update({ stripe_customer_id: customer.id } as any)
     .eq('id', uid);
   if (updErr) throw new Error(`DB update failed: ${updErr.message}`);
   return customer.id;
@@ -56,7 +56,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
     if (!token) return res.status(401).json({ error: 'Missing bearer token' });
 
-    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+    const admin: SupabaseClient<any, any, any> = createClient(
+     SUPABASE_URL,
+     SERVICE_ROLE_KEY,
+     { auth: { persistSession: false } }
+    );
     const { data: userInfo, error: userErr } = await admin.auth.getUser(token);
     if (userErr || !userInfo?.user) return res.status(401).json({ error: 'Invalid token' });
 
