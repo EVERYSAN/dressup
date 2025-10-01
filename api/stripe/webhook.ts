@@ -99,25 +99,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
         break;
       }
-// api/stripe/webhook.ts の switch直後など適所に一時追加
-console.log('[hook] type=', event.type);
-
 case 'invoice.payment_succeeded': {
   const inv = event.data.object as Stripe.Invoice;
-  console.log('[hook] inv.customer=', inv.customer, 'inv.subscription=', typeof inv.subscription === 'string' ? inv.subscription : inv.subscription?.id);
-
-  const sub = await stripe.subscriptions.retrieve(
-    typeof inv.subscription === 'string' ? inv.subscription : inv.subscription.id
-  );
-  const priceId = sub.items.data[0]?.price?.id || '';
-  const map = mapPrice(priceId);
-  console.log('[hook] priceId=', priceId, 'map=', map);
-
-  if (map) {
-    await setUserPlanByCustomer(String(inv.customer), map.plan, map.credits, sub.current_period_end);
-    console.log('[hook] updated user for customer=', inv.customer);
-  } else {
-    console.warn('[hook] unknown price. Did you set STRIPE_PRICE_* correctly? priceId=', priceId);
+  // subscription が "id文字列" のことも、Subscriptionオブジェクトのこともある
+  if (inv.subscription && inv.customer) {
+    const sub = await stripe.subscriptions.retrieve(
+      typeof inv.subscription === 'string'
+        ? inv.subscription
+        : inv.subscription.id
+    );
+    const priceId = sub.items.data[0]?.price?.id || '';
+    const map = mapPrice(priceId);        // priceId -> { plan, credits } に変換
+    if (map) {
+      await setUserPlanByCustomer(
+        String(inv.customer),
+        map.plan,
+        map.credits,
+        sub.current_period_end            // 次回請求期末を period_end に保存
+      );
+      // setUserPlanByCustomer は credits_used=0 へリセットする実装でOK
+    } else {
+      console.warn('[webhook] unknown priceId on invoice.payment_succeeded:', priceId);
+    }
   }
   break;
 }
