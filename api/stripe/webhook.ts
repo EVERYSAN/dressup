@@ -99,6 +99,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
         break;
       }
+// api/stripe/webhook.ts の switch直後など適所に一時追加
+console.log('[hook] type=', event.type);
+
+case 'invoice.payment_succeeded': {
+  const inv = event.data.object as Stripe.Invoice;
+  console.log('[hook] inv.customer=', inv.customer, 'inv.subscription=', typeof inv.subscription === 'string' ? inv.subscription : inv.subscription?.id);
+
+  const sub = await stripe.subscriptions.retrieve(
+    typeof inv.subscription === 'string' ? inv.subscription : inv.subscription.id
+  );
+  const priceId = sub.items.data[0]?.price?.id || '';
+  const map = mapPrice(priceId);
+  console.log('[hook] priceId=', priceId, 'map=', map);
+
+  if (map) {
+    await setUserPlanByCustomer(String(inv.customer), map.plan, map.credits, sub.current_period_end);
+    console.log('[hook] updated user for customer=', inv.customer);
+  } else {
+    console.warn('[hook] unknown price. Did you set STRIPE_PRICE_* correctly? priceId=', priceId);
+  }
+  break;
+}
 
       // 2) サブスク作成/更新。こちらでも常に反映して冪等化
       case 'customer.subscription.created':
