@@ -1,7 +1,7 @@
 // api/stripe/create-checkout.ts
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const STRIPE_API_KEY = process.env.STRIPE_API_KEY!;
 const NEXT_PUBLIC_APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
@@ -16,7 +16,7 @@ const stripe = new Stripe(STRIPE_API_KEY, { apiVersion: '2024-06-20' });
 
 async function ensureCustomer(
   stripe: Stripe,
-  admin: ReturnType<typeof createClient>,
+  admin: SupabaseClient<any, any, any> | any,
   uid: string,
   email?: string | null,
   existingId?: string | null
@@ -37,7 +37,11 @@ async function ensureCustomer(
     metadata: { app_uid: uid },
   });
 
-  await admin.from('users').update({ stripe_customer_id: customer.id }).eq('id', uid);
+  await (admin as any)
+    .from('users')
+    .update({ stripe_customer_id: customer.id } as any)
+    .eq('id', uid);
+
   return customer.id;
 }
 
@@ -52,7 +56,11 @@ const planToPrice = (plan: string) => {
       return PRICE_PRO;
     default:
       return null;
-  }
+  }await (admin as any)
++    .from('users')
++    .update({ stripe_customer_id: customer.id } as any)
++    .eq('id', uid);
+
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -67,7 +75,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
     if (!token) return res.status(401).json({ error: 'Missing bearer token' });
 
-    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+    const admin: SupabaseClient<any, any, any> = createClient(
+      SUPABASE_URL,
+      SERVICE_ROLE_KEY,
+  　   { auth: { persistSession: false } }
+    );
     const { data: userInfo, error: userErr } = await admin.auth.getUser(token);
     if (userErr || !userInfo?.user) return res.status(401).json({ error: 'Invalid token' });
 
@@ -82,13 +94,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (selErr) return res.status(500).json({ error: 'DB select failed', detail: selErr.message });
 
-    const customerId = await ensureCustomer(
-    stripe,
-    admin,
-    uid,
-    row?.email ?? email,
-    row?.stripe_customer_id
- );
+    const customerId = await ensureCustomer(stripe, admin, uid, row?.email ?? email, row?.stripe_customer_id);
 
     const baseUrl = NEXT_PUBLIC_APP_URL || (req.headers.origin as string) || 'https://example.com';
 
