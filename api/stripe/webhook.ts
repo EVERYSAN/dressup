@@ -99,31 +99,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
         break;
       }
-case 'invoice.payment_succeeded': {
-  const inv = event.data.object as Stripe.Invoice;
-  // subscription が "id文字列" のことも、Subscriptionオブジェクトのこともある
-  if (inv.subscription && inv.customer) {
-    const sub = await stripe.subscriptions.retrieve(
-      typeof inv.subscription === 'string'
-        ? inv.subscription
-        : inv.subscription.id
-    );
-    const priceId = sub.items.data[0]?.price?.id || '';
-    const map = mapPrice(priceId);        // priceId -> { plan, credits } に変換
-    if (map) {
-      await setUserPlanByCustomer(
-        String(inv.customer),
-        map.plan,
-        map.credits,
-        sub.current_period_end            // 次回請求期末を period_end に保存
-      );
-      // setUserPlanByCustomer は credits_used=0 へリセットする実装でOK
-    } else {
-      console.warn('[webhook] unknown priceId on invoice.payment_succeeded:', priceId);
-    }
-  }
-  break;
-}
+
 
       // 2) サブスク作成/更新。こちらでも常に反映して冪等化
       case 'customer.subscription.created':
