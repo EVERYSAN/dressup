@@ -30,9 +30,12 @@ function mapPrice(priceId: string): { plan: Plan; credits: number } | null {
     case PRICE_LIGHT: return { plan: 'light', credits: 100 };
     case PRICE_BASIC: return { plan: 'basic', credits: 500 };
     case PRICE_PRO:   return { plan: 'pro',   credits: 1200 };
-    default: return null; // 未知の Price は無視（ログだけ）
+    default:
+      console.warn('[webhook] priceId not mapped:', priceId);
+      return null; // ← ここは維持（後述の ensure が先に走るのでDB行は作られる）
   }
 }
+
 const FREE_CREDITS = 10;
 
 // ---- ユーザー更新（stripe_customer_id で1行更新）----
@@ -67,38 +70,41 @@ async function setUserPlanByCustomer(
 
 
 // webhook.ts の先頭ユーティリティ群の近くに追加
-async function ensureUserLinkedToCustomer(opts: {
-  customerId: string;
-  emailHint?: string | null;
-}) {
-  const { customerId, emailHint } = opts;
+async function ensureUserLinkedToCustomer(params: { customerId: string; emailHint: string | null }) {
+  const { customerId, emailHint } = params;
+  if (!customerId) return;
 
-  // 既にリンク済みか確認
-  const exist = await admin
+  // 既存確認
+  const { data: existing, error: selErr } = await admin
     .from('users')
-    .select('id')
+    .select('id, email')
     .eq('stripe_customer_id', customerId)
     .maybeSingle();
-
-  if (exist.data) return exist.data.id as string | null;
-
-  // 未リンクなら email で突合 → あれば stripe_customer_id を自己修復
-  if (emailHint) {
-    const byEmail = await admin
-      .from('users')
-      .select('id')
-      .eq('email', emailHint)
-      .maybeSingle();
-    if (byEmail.data) {
-      await admin
-        .from('users')
-        .update({ stripe_customer_id: customerId, updated_at: new Date().toISOString() })
-        .eq('id', byEmail.data.id);
-      return byEmail.data.id as string;
-    }
+  if (selErr) {
+    console.error('[webhook] select users failed:', selErr);
+    return;
   }
-  return null;
+  if (existing) return; // もう紐づいてる
+
+  if (!emailHint) {
+    console.warn('[webhook] no emailHint to create user; customerId=', customerId);
+    return;
+  }
+
+  // 無ければ作成（NOT NULLカラムにデフォルト値も入れる）
+  const { error: insErr } = await admin.from('users').upsert({
+    email: emailHint,
+    stripe_customer_id: customerId,
+    plan: 'free',
+    credits_total: 10,
+    credits_used: 0,
+    period_end: null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'email' });
+
+  if (insErr) console.error('[webhook] upsert users failed:', insErr);
 }
+
 
 
 // ---- 価格IDの取得を“必ず成功”させるためのヘルパー ----
@@ -178,24 +184,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     case 'invoice.payment_succeeded': {
       const inv = event.data.object as Stripe.Invoice;
       if (inv.subscription && inv.customer) {
-            // 🔽 これを先頭に追加（email自己修復）
         await ensureUserLinkedToCustomer({
           customerId: String(inv.customer),
-          emailHint: inv.customer_email ?? null,   // ← Dashboard作成でも入っていることが多い
+          emailHint: inv.customer_email ?? null,
         });
-        
+    
         const sub = await stripe.subscriptions.retrieve(
           typeof inv.subscription === 'string' ? inv.subscription : inv.subscription.id
         );
+    
         const priceId = sub.items.data[0]?.price?.id || '';
-        const map = mapPrice(priceId);
-        if (map) {
-          await setUserPlanByCustomer(String(inv.customer), map.plan, map.credits, sub.current_period_end);
-          // ← ここで credits_used=0 にリセットされる
+        const mapped = mapPrice(priceId);
+    
+        if (mapped) {
+          await setUserPlanByCustomer(
+            String(inv.customer),
+            mapped.plan,
+            mapped.credits,
+            sub.current_period_end ?? null   // ← null セーフティ
+          );
+        } else {
+          // マッピング出来なかったが、ユーザー行は ensure 済み。
+          console.warn('[webhook] skip plan update due to unmapped price:', priceId);
         }
       }
       break;
     }
+
     
     case 'customer.subscription.deleted': {
       const sub = event.data.object as Stripe.Subscription;
