@@ -109,24 +109,44 @@ export default async function handler(req: any, res: any) {
     }
 
     // 期末にだけ下げる（2フェーズ）
-    const schedule = await stripe.subscriptionSchedules.create({
-      from_subscription: sub.id,
-      phases: [
-        {
-          // 現行プラン維持（期末まで）
-          items: sub.items.data.map(i => ({ price: i.price.id, quantity: i.quantity ?? 1 })),
-          end_date: sub.current_period_end,
-        },
-        {
-          // 次期から targetPrice
-          items: [{ price: targetPrice, quantity: 1 }],
-        },
-      ],
-    }, {
-      idempotencyKey: `sched-dg-${sub.id}-${targetPrice}`,
-    });
+    // 既存スケジュール（重複防止）
+const schedList = await stripe.subscriptionSchedules.list({
+  customer: urow.stripe_customer_id,
+  limit: 10,
+  expand: ['data.phases.items.price'],
+});
+const existing = schedList.data.find(s => s.subscription === sub.id && s.status !== 'canceled');
+if (existing) {
+  return res.status(200).json({ ok: true, scheduled: true, scheduleId: existing.id });
+}
 
-    return res.status(200).json({ ok: true, scheduled: true, scheduleId: schedule.id });
+// (A) まず from_subscription だけで作成（ここでは phases を入れない）
+const created = await stripe.subscriptionSchedules.create(
+  { from_subscription: sub.id },
+  { idempotencyKey: `sched-dg-${sub.id}-${targetPrice}-create` }
+);
+
+// (B) 続けて phases を update で設定（期末→次期の二段階）
+const updated = await stripe.subscriptionSchedules.update(
+  created.id,
+  {
+    phases: [
+      {
+        // 現行プラン維持（期末まで）
+        items: sub.items.data.map(i => ({ price: i.price.id, quantity: i.quantity ?? 1 })),
+        end_date: sub.current_period_end,
+      },
+      {
+        // 次期から targetPrice
+        items: [{ price: targetPrice, quantity: 1 }],
+      },
+    ],
+  },
+  { idempotencyKey: `sched-dg-${sub.id}-${targetPrice}-update` }
+);
+
+return res.status(200).json({ ok: true, scheduled: true, scheduleId: updated.id });
+
   } catch (e: any) {
     console.error('[schedule-downgrade] failed:', e);
     return res.status(500).json({ error: 'Server error', detail: e?.message ?? String(e) });
