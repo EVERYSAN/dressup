@@ -123,6 +123,18 @@ async function ensureUserLinkedToCustomer(params: { customerId: string; emailHin
   if (insErr) console.error('[webhook] insert user failed:', insErr);
 }
 
+// どこかユーティリティ群の下に
+function pickPeriodEndFromInvoice(inv: Stripe.Invoice): number | null {
+  // まず subscription.current_period_end を試みる
+  let periodEnd: number | null = null;
+
+  // 呼び出し側ですでに sub を取っていない場合は lines を信頼する
+  const line = inv.lines?.data?.[0];
+  if (line?.period?.end) {
+    periodEnd = line.period.end;           // ← ここが一番確実（UNIX秒）
+  }
+  return periodEnd;
+}
 
 
 
@@ -208,54 +220,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const inv = event.data.object as Stripe.Invoice;
       if (!inv.subscription || !inv.customer) break;
     
-      // 1) ダッシュボード作成にも耐える自己修復
+      // ユーザー自己修復（既存のまま）
       await ensureUserLinkedToCustomer({
         customerId: String(inv.customer),
         emailHint: inv.customer_email ?? null,
       });
     
-      // 2) period_end を二段で取得（まず Subscription、だめなら Invoice line）
-      let periodEnd: number | null = null;
-      try {
-        const sub = await stripe.subscriptions.retrieve(
-          typeof inv.subscription === 'string'
-            ? inv.subscription
-            : inv.subscription.id
-        );
-        periodEnd = sub.current_period_end ?? null;
-    
-        // priceId も subscription 由来だと取りこぼす場合があるため、lines 由来を優先
-        // （この後 lines 側で改めて拾うのでここではログだけでもOK）
-        console.log('[webhook] sub.current_period_end=', sub.current_period_end);
-      } catch (e) {
-        console.warn('[webhook] subscriptions.retrieve failed:', e);
-      }
-    
-      // Invoice の明細からも拾う（こちらの方が確実）
+      // price は lines から拾うのが確実
       const line = inv.lines?.data?.[0];
-      const fallbackEnd = line?.period?.end; // UNIX秒
-      if (!periodEnd && typeof fallbackEnd === 'number') {
-        periodEnd = fallbackEnd;
-      }
-    
-      // 3) 価格IDは lines から（subscription.items より確実）
       const priceId = line?.price?.id ?? '';
       const mapped = mapPrice(priceId);
     
-      console.log('[webhook] invoice.succeeded priceId=', priceId, 'mapped=', mapped, 'periodEnd=', periodEnd);
+      // ← ここがポイント：lines.period.end を採用
+      const periodEnd = pickPeriodEndFromInvoice(inv);
+    
+      console.log('[webhook] invoice.succeeded',
+        { priceId, mapped, periodEnd });
     
       if (mapped) {
         await setUserPlanByCustomer(
           String(inv.customer),
           mapped.plan,
           mapped.credits,
-          periodEnd ?? null        // ← ここに最終値を渡す
+          periodEnd // null なら setUserPlanByCustomer 側で null 保存
         );
       } else {
         console.warn('[webhook] skip plan update due to unmapped price:', priceId);
       }
       break;
     }
+
 
 
     
