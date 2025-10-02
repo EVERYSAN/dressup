@@ -40,21 +40,31 @@ async function setUserPlanByCustomer(
   customerId: string,
   plan: Plan,
   creditsTotal: number,
-  periodEnd?: number | null,
+  periodEndUnix: number // ← 必須 & 秒
 ) {
+  // 妥当性チェック（2000-01-01〜2100-01-01 の範囲に収まるか）
+  if (
+    !Number.isFinite(periodEndUnix) ||
+    periodEndUnix < 946684800 ||          // 2000-01-01
+    periodEndUnix >= 4102444799           // 2100-01-01
+  ) {
+    console.warn('period_end looks invalid, keep previous or set NULL:', periodEndUnix);
+  }
+
   const { error } = await admin
     .from('users')
     .update({
       plan,
       credits_total: creditsTotal,
-      credits_used: 0,          // 課金成功時はリセット
-      period_end: periodEnd ?? null,
+      credits_used: 0,           // 課金成功時はリセット
+      period_end: Number.isFinite(periodEndUnix) ? periodEndUnix : null, // int8 に秒で保存
       updated_at: new Date().toISOString(),
     })
     .eq('stripe_customer_id', customerId);
 
   if (error) throw new Error(`DB update failed: ${error.message}`);
 }
+
 
 // webhook.ts の先頭ユーティリティ群の近くに追加
 async function ensureUserLinkedToCustomer(opts: {
