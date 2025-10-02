@@ -188,13 +188,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const map = mapPrice(priceId);
         // 期末解約(cancel_at_period_end)でも、ここでは period_end を更新しておく
         if (map && ['active','trialing','past_due','unpaid'].includes(sub.status)) {
-          await admin.from('users')
+          const { error: updErr } = await admin.from('users')
             .update({
-              plan: map.plan,                 // UIに現在プランを見せたいなら反映
+              plan: map.plan,
+              credits_total: map.credits,   // ★ これを追加（プランに応じた総枠に）
+              credits_used: 0,              // ★ サイクル開始時は安全のためリセット
               period_end: sub.current_period_end,
               updated_at: new Date().toISOString(),
             })
             .eq('stripe_customer_id', String(sub.customer));
+        
+          if (updErr) console.error('[webhook] sub.upd users.update failed:', updErr);
         }
       }
       break;
@@ -214,6 +218,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     
         const priceId = sub.items.data[0]?.price?.id || '';
         const mapped = mapPrice(priceId);
+        console.log('[webhook] invoice.succeeded priceId=', priceId, 'mapped=', mapped);
+        console.log('[webhook] updating user for', String(inv.customer), {
+          plan: mapped.plan, credits: mapped.credits, period_end: sub.current_period_end
+        });
+
     
         if (mapped) {
           await setUserPlanByCustomer(
