@@ -45,6 +45,16 @@ async function setUserPlanByCustomer(
   creditsTotal: number,
   periodEndUnix: number | null // ← 必須 & 秒
 ) {
+  const isValid =
+    typeof periodEndUnix === 'number' &&
+    Number.isFinite(periodEndUnix) &&
+    periodEndUnix >= 946684800 &&      // 2000-01-01
+    periodEndUnix <  4102444799;       // 2100-01-01
+
+  if (!isValid) {
+    console.warn('[webhook] period_end looks invalid, keep NULL:', periodEndUnix);
+  }
+  const safePeriodEnd = isValid ? periodEndUnix : null;
   // 妥当性チェック（2000-01-01〜2100-01-01 の範囲に収まるか）
   if (
     !Number.isFinite(periodEndUnix) ||
@@ -59,11 +69,12 @@ async function setUserPlanByCustomer(
     .update({
       plan,
       credits_total: creditsTotal,
-      credits_used: 0,           // 課金成功時はリセット
-      period_end: Number.isFinite(periodEndUnix) ? periodEndUnix : null, // int8 に秒で保存
+      credits_used: 0,
+      period_end: safePeriodEnd, // ← さっき作った安全な値だけ保存
       updated_at: new Date().toISOString(),
     })
     .eq('stripe_customer_id', customerId);
+
 
   if (error) throw new Error(`DB update failed: ${error.message}`);
 }
@@ -167,7 +178,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const sub = typeof session.subscription === 'string'
             ? await stripe.subscriptions.retrieve(session.subscription)
             : session.subscription;
-          await setUserPlanByCustomer(String(session.customer), map.plan, map.credits, sub.current_period_end);
+          await setUserPlanByCustomer(String(session.customer), map.plan, map.credits, sub.current_period_end ?? null);
         } else {
           console.warn('[webhook] unknown price on checkout.session.completed:', priceId);
         }
