@@ -74,25 +74,44 @@ async function ensureUserLinkedToCustomer(params: { customerId: string; emailHin
   const { customerId, emailHint } = params;
   if (!customerId) return;
 
-  // 既存確認
-  const { data: existing, error: selErr } = await admin
+  // 1) すでに customerId で紐づいていれば何もしない
+  const { data: byCustomer, error: sel1 } = await admin
     .from('users')
-    .select('id, email')
+    .select('id')
     .eq('stripe_customer_id', customerId)
     .maybeSingle();
-  if (selErr) {
-    console.error('[webhook] select users failed:', selErr);
+  if (sel1) {
+    console.error('[webhook] select by customer failed:', sel1);
     return;
   }
-  if (existing) return; // もう紐づいてる
+  if (byCustomer) return;
 
-  if (!emailHint) {
-    console.warn('[webhook] no emailHint to create user; customerId=', customerId);
+  // 2) email で既存行があれば stripe_customer_id を埋める
+  if (emailHint) {
+    const { data: byEmail, error: sel2 } = await admin
+      .from('users')
+      .select('id')
+      .eq('email', emailHint)
+      .maybeSingle();
+    if (sel2) {
+      console.error('[webhook] select by email failed:', sel2);
+      return;
+    }
+    if (byEmail) {
+      const { error: upd } = await admin
+        .from('users')
+        .update({ stripe_customer_id: customerId, updated_at: new Date().toISOString() })
+        .eq('id', byEmail.id);
+      if (upd) console.error('[webhook] update existing user failed:', upd);
+      return;
+    }
+  } else {
+    console.warn('[webhook] no emailHint; cannot create new user. customerId=', customerId);
     return;
   }
 
-  // 無ければ作成（NOT NULLカラムにデフォルト値も入れる）
-  const { error: insErr } = await admin.from('users').upsert({
+  // 3) 行が無ければ新規作成（NOT NULL を満たすデフォルトも入れる）
+  const { error: insErr } = await admin.from('users').insert({
     email: emailHint,
     stripe_customer_id: customerId,
     plan: 'free',
@@ -100,10 +119,10 @@ async function ensureUserLinkedToCustomer(params: { customerId: string; emailHin
     credits_used: 0,
     period_end: null,
     updated_at: new Date().toISOString(),
-  }, { onConflict: 'email' });
-
-  if (insErr) console.error('[webhook] upsert users failed:', insErr);
+  });
+  if (insErr) console.error('[webhook] insert user failed:', insErr);
 }
+
 
 
 
