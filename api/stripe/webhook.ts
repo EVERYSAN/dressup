@@ -69,59 +69,48 @@ async function setUserPlanByCustomer(
 }
 
 
-// webhook.ts の先頭ユーティリティ群の近くに追加
+// 既存の ensureUserLinkedToCustomer を置き換え
 async function ensureUserLinkedToCustomer(params: { customerId: string; emailHint: string | null }) {
   const { customerId, emailHint } = params;
   if (!customerId) return;
 
-  // 1) すでに customerId で紐づいていれば何もしない
-  const { data: byCustomer, error: sel1 } = await admin
-    .from('users')
-    .select('id')
-    .eq('stripe_customer_id', customerId)
-    .maybeSingle();
-  if (sel1) {
-    console.error('[webhook] select by customer failed:', sel1);
-    return;
-  }
-  if (byCustomer) return;
-
-  // 2) email で既存行があれば stripe_customer_id を埋める
+  // 1) email があれば「新規だけ」作る（既存は DO NOTHING）
   if (emailHint) {
-    const { data: byEmail, error: sel2 } = await admin
+    const { error: insErr } = await admin
       .from('users')
-      .select('id')
+      .upsert(
+        {
+          email: emailHint,
+          // 既存を壊さないため初期値は“新規時だけ”入れたい → ignoreDuplicates:true で DO NOTHING に
+          plan: 'free',
+          credits_total: 10,
+          credits_used: 0,
+          period_end: null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'email', ignoreDuplicates: true }
+      );
+    if (insErr) console.error('[webhook] ensure upsert(insert) failed:', insErr);
+
+    // 2) 既存行がある場合でも、stripe_customer_id が未設定ならだけ埋める
+    const { error: updErr } = await admin
+      .from('users')
+      .update({ stripe_customer_id: customerId, updated_at: new Date().toISOString() })
       .eq('email', emailHint)
-      .maybeSingle();
-    if (sel2) {
-      console.error('[webhook] select by email failed:', sel2);
-      return;
-    }
-    if (byEmail) {
-      const { error: upd } = await admin
-        .from('users')
-        .update({ stripe_customer_id: customerId, updated_at: new Date().toISOString() })
-        .eq('id', byEmail.id);
-      if (upd) console.error('[webhook] update existing user failed:', upd);
-      return;
-    }
-  } else {
-    console.warn('[webhook] no emailHint; cannot create new user. customerId=', customerId);
+      .is('stripe_customer_id', null); // ← ここが「未設定ならだけ」
+    if (updErr) console.error('[webhook] ensure set customerId failed:', updErr);
+
     return;
   }
 
-  // 3) 行が無ければ新規作成（NOT NULL を満たすデフォルトも入れる）
-  const { error: insErr } = await admin.from('users').insert({
-    email: emailHint,
-    stripe_customer_id: customerId,
-    plan: 'free',
-    credits_total: 10,
-    credits_used: 0,
-    period_end: null,
-    updated_at: new Date().toISOString(),
-  });
-  if (insErr) console.error('[webhook] insert user failed:', insErr);
+  // email がない場合は既存にタッチだけ（新規作成はしない）
+  const { error: touchErr } = await admin
+    .from('users')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('stripe_customer_id', customerId);
+  if (touchErr) console.error('[webhook] touch by customerId failed:', touchErr);
 }
+
 
 // どこかユーティリティ群の下に
 function pickPeriodEndFromInvoice(inv: Stripe.Invoice): number | null {
