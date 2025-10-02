@@ -1,32 +1,33 @@
+// src/components/PricingDialog.tsx
 import React from 'react';
 import { X } from 'lucide-react';
 import { scheduleDowngrade } from '@/lib/billing';
 
-type PlanKey = 'light' | 'basic' | 'pro';
-import { scheduleDowngrade } from '@/lib/billing';
-
-type Tier = 'free'|'light'|'basic'|'pro';
-const rank: Record<Tier, number> = { free:0, light:1, basic:2, pro:3 };
+type Tier = 'free' | 'light' | 'basic' | 'pro';
+const rank: Record<Tier, number> = { free: 0, light: 1, basic: 2, pro: 3 };
 
 export default function PricingDialog({
-  open, onOpenChange,
-  onBuy,                // ← アップグレード用
-  currentTier,          // ← 追加
+  open,
+  onOpenChange,
+  onBuy,              // アップグレード即時
+  currentTier,        // 現在のユーザープラン
 }: {
   open: boolean;
-  onOpenChange: (v:boolean)=>void;
-  onBuy: (plan: 'light'|'basic'|'pro') => Promise<void>;
+  onOpenChange: (v: boolean) => void;
+  onBuy: (plan: 'light' | 'basic' | 'pro') => Promise<void>;
   currentTier: Tier;
 }) {
-  const handleClick = async (plan: 'light'|'basic'|'pro') => {
+  if (!open) return null;
+
+  const handleClick = async (plan: 'light' | 'basic' | 'pro') => {
     try {
       if (rank[plan] < rank[currentTier]) {
-        // ↓↓↓ ダウングレードは期末適用
+        // ↓↓↓ ダウングレードは期末にスケジュール
         await scheduleDowngrade(plan);
         alert('ダウングレードを次回請求日に適用として受け付けました。');
         onOpenChange(false);
       } else {
-        // ↑↑↑ アップグレードは即時
+        // ↑↑↑ アップグレードは即時購入
         await onBuy(plan);
       }
     } catch (e) {
@@ -35,22 +36,6 @@ export default function PricingDialog({
     }
   };
 
-
-type Props = {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onBuy: (plan: PlanKey) => void;
-};
-
-/**
- * 料金ダイアログ
- * - 画面中央に固定
- * - 背景スクロールを抑止
- * - ダイアログ内部だけ縦スクロール可能
- */
-export const PricingDialog: React.FC<Props> = ({ open, onOpenChange, onBuy }) => {
-  if (!open) return null;
-
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40"
@@ -58,12 +43,10 @@ export const PricingDialog: React.FC<Props> = ({ open, onOpenChange, onBuy }) =>
       aria-modal="true"
       onClick={() => onOpenChange(false)}
     >
-      {/* コンテンツ */}
       <div
         className="mx-3 w-full max-w-5xl rounded-lg bg-white shadow-xl ring-1 ring-black/10"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* ヘッダー */}
         <div className="flex items-center justify-between border-b px-4 py-3 md:px-6">
           <h2 className="text-base font-semibold md:text-lg">プラン一覧</h2>
           <button
@@ -75,68 +58,54 @@ export const PricingDialog: React.FC<Props> = ({ open, onOpenChange, onBuy }) =>
           </button>
         </div>
 
-        {/* 本文（縦スクロール許可） */}
         <div className="max-h-[80vh] overflow-y-auto px-4 py-5 md:px-6">
           <div className="grid gap-6 md:grid-cols-3">
-            {/* ライト */}
             <PlanCard
               title="ライト"
               price="¥1,500/月"
-              bullets={[
-                'フリマアプリ出品者、小規模ECショップ向け',
-              ]}
-              features={['100回/月','透かし解除']}
+              bullets={['フリマアプリ出品者、小規模ECショップ向け']}
+              features={['100回/月', '透かし解除']}
               cta="ライトで始める"
-              onClick={() => onBuy('light')}
+              onClick={() => handleClick('light')}
             />
-            {/* ベーシック */}
             <PlanCard
               title="ベーシック"
               price="¥6,000/月"
-              bullets={[
-                '月間数百点の商品画像を扱う店舗（古着屋・雑貨屋）向け',
-              ]}
-              features={['500回/月','透かし解除']}
+              bullets={['月間数百点の商品画像を扱う店舗（古着屋・雑貨屋）向け']}
+              features={['500回/月', '透かし解除']}
               cta="ベーシックに申し込む"
-              onClick={() => onBuy('basic')}
+              onClick={() => handleClick('basic')}
             />
-            {/* プロ */}
             <PlanCard
               title="プロ"
               price="¥14,000/月"
-              bullets={[
-                '中規模ブランド、複数店舗展開してる事業者向け',
-              ]}
-              features={['1200回/月','透かし解除']}
+              bullets={['中規模ブランド、複数店舗展開してる事業者向け']}
+              features={['1200回/月', '透かし解除']}
               cta="プロに申し込む"
-              onClick={() => onBuy('pro')}
+              onClick={() => handleClick('pro')}
             />
           </div>
         </div>
       </div>
     </div>
   );
-};
+}
 
-type CardProps = {
-  title: string;
-  price: string;
-  bullets: string[];
-  features: string[];
-  note?: string;
-  cta: string;
-  onClick: () => void;
-};
-
-const PlanCard: React.FC<CardProps> = ({
+function PlanCard({
   title,
   price,
   bullets,
   features,
-  note,
   cta,
   onClick,
-}) => {
+}: {
+  title: string;
+  price: string;
+  bullets: string[];
+  features: string[];
+  cta: string;
+  onClick: () => void;
+}) {
   return (
     <div className="flex flex-col rounded-lg border p-5 shadow-sm">
       <div>
@@ -159,12 +128,6 @@ const PlanCard: React.FC<CardProps> = ({
         ))}
       </ul>
 
-      {note && (
-        <p className="mt-3 text-xs text-muted-foreground">
-          {note}
-        </p>
-      )}
-
       <button
         type="button"
         onClick={onClick}
@@ -174,7 +137,4 @@ const PlanCard: React.FC<CardProps> = ({
       </button>
     </div>
   );
-};
-
-// どちらの import でも OK
-export default PricingDialog;
+}
