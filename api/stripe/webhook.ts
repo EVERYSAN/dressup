@@ -39,12 +39,14 @@ function mapPrice(priceId: string): { plan: Plan; credits: number } | null {
 const FREE_CREDITS = 10;
 
 // ---- ユーザー更新（stripe_customer_id で1行更新）----
+// webhook.ts 内の setUserPlanByCustomer を丸ごと差し替え
 async function setUserPlanByCustomer(
   customerId: string,
   plan: Plan,
   creditsTotal: number,
-  periodEndUnix: number | null // ← 必須 & 秒
+  periodEndUnix: number | null,   // ← null 許容
 ) {
+  // --- null / 不正値を先に弾く（TS の型絞り込み & Stripe 時刻の妥当域チェック）---
   const isValid =
     typeof periodEndUnix === 'number' &&
     Number.isFinite(periodEndUnix) &&
@@ -55,14 +57,6 @@ async function setUserPlanByCustomer(
     console.warn('[webhook] period_end looks invalid, keep NULL:', periodEndUnix);
   }
   const safePeriodEnd = isValid ? periodEndUnix : null;
-  // 妥当性チェック（2000-01-01〜2100-01-01 の範囲に収まるか）
-  if (
-    !Number.isFinite(periodEndUnix) ||
-    periodEndUnix < 946684800 ||          // 2000-01-01
-    periodEndUnix >= 4102444799           // 2100-01-01
-  ) {
-    console.warn('period_end looks invalid, keep previous or set NULL:', periodEndUnix);
-  }
 
   const { error } = await admin
     .from('users')
@@ -70,14 +64,14 @@ async function setUserPlanByCustomer(
       plan,
       credits_total: creditsTotal,
       credits_used: 0,
-      period_end: safePeriodEnd, // ← さっき作った安全な値だけ保存
+      period_end: safePeriodEnd,                 // ← 常に安全な値だけ反映
       updated_at: new Date().toISOString(),
     })
     .eq('stripe_customer_id', customerId);
 
-
   if (error) throw new Error(`DB update failed: ${error.message}`);
 }
+
 
 
 // 既存の ensureUserLinkedToCustomer を置き換え
