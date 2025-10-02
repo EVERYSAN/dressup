@@ -47,10 +47,7 @@ export default async function handler(req: any, res: any) {
 
     const user = await getUserFromJWT(req);
 
-    // 文字列で届いた時の保険
-    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
-    const { targetPlan, targetPriceId } = body as { targetPlan?: Tier; targetPriceId?: string };
-    // 文字列のときも JSON のときも受けられるようにする
+    // --- ボディを文字列/JSON 両対応でパースし、plan か targetPlan か priceId か targetPriceId を受ける ---
     const raw = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
     const { plan, targetPlan, priceId, targetPriceId } = raw as {
       plan?: 'light'|'basic'|'pro';
@@ -59,29 +56,21 @@ export default async function handler(req: any, res: any) {
       targetPriceId?: string;
     };
 
-const chosenPlan = plan ?? targetPlan;
-
-const targetPrice =
-  priceId ??
-  targetPriceId ??
-  (chosenPlan === 'light' ? process.env.STRIPE_PRICE_LIGHT
-   : chosenPlan === 'basic' ? process.env.STRIPE_PRICE_BASIC
-   : chosenPlan === 'pro'   ? process.env.STRIPE_PRICE_PRO
-   : undefined);
-
-if (!targetPrice) {
-  return res.status(400).json({ error: 'Bad request: target plan/price required' });
-}
-
-console.log('[schedule-downgrade] body=', { plan, targetPlan, priceId, targetPriceId, chosenPlan, targetPrice });
+    const chosenPlan = plan ?? targetPlan;
 
     const targetPrice =
+      priceId ??
       targetPriceId ??
-      (targetPlan === 'light' ? PRICE_LIGHT :
-       targetPlan === 'basic' ? PRICE_BASIC :
-       targetPlan === 'pro'   ? PRICE_PRO   : undefined);
+      (chosenPlan === 'light' ? process.env.STRIPE_PRICE_LIGHT
+       : chosenPlan === 'basic' ? process.env.STRIPE_PRICE_BASIC
+       : chosenPlan === 'pro'   ? process.env.STRIPE_PRICE_PRO
+       : undefined);
 
-    if (!targetPrice) return res.status(400).json({ error: 'Bad request: target plan/price required' });
+    if (!targetPrice) {
+      return res.status(400).json({ error: 'Bad request: target plan/price required' });
+    }
+
+    console.log('[schedule-downgrade] body=', { plan, targetPlan, priceId, targetPriceId, chosenPlan, targetPrice });
 
     const admin = createClient(SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     const { data: urow, error: uerr } = await admin
@@ -119,7 +108,7 @@ console.log('[schedule-downgrade] body=', { plan, targetPlan, priceId, targetPri
       return res.status(200).json({ ok: true, scheduled: true, scheduleId: existing.id });
     }
 
-    // 期末にだけ下げる
+    // 期末にだけ下げる（2フェーズ）
     const schedule = await stripe.subscriptionSchedules.create({
       from_subscription: sub.id,
       phases: [
@@ -127,7 +116,6 @@ console.log('[schedule-downgrade] body=', { plan, targetPlan, priceId, targetPri
           // 現行プラン維持（期末まで）
           items: sub.items.data.map(i => ({ price: i.price.id, quantity: i.quantity ?? 1 })),
           end_date: sub.current_period_end,
-          // proration_behavior は外す（型の揺れ対策）
         },
         {
           // 次期から targetPrice
