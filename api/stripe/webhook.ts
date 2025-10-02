@@ -206,38 +206,57 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     
     case 'invoice.payment_succeeded': {
       const inv = event.data.object as Stripe.Invoice;
-      if (inv.subscription && inv.customer) {
-        await ensureUserLinkedToCustomer({
-          customerId: String(inv.customer),
-          emailHint: inv.customer_email ?? null,
-        });
+      if (!inv.subscription || !inv.customer) break;
     
+      // 1) ダッシュボード作成にも耐える自己修復
+      await ensureUserLinkedToCustomer({
+        customerId: String(inv.customer),
+        emailHint: inv.customer_email ?? null,
+      });
+    
+      // 2) period_end を二段で取得（まず Subscription、だめなら Invoice line）
+      let periodEnd: number | null = null;
+      try {
         const sub = await stripe.subscriptions.retrieve(
-          typeof inv.subscription === 'string' ? inv.subscription : inv.subscription.id
+          typeof inv.subscription === 'string'
+            ? inv.subscription
+            : inv.subscription.id
         );
+        periodEnd = sub.current_period_end ?? null;
     
-        const priceId = sub.items.data[0]?.price?.id || '';
-        const mapped = mapPrice(priceId);
-        console.log('[webhook] invoice.succeeded priceId=', priceId, 'mapped=', mapped);
-        console.log('[webhook] updating user for', String(inv.customer), {
-          plan: mapped.plan, credits: mapped.credits, period_end: sub.current_period_end
-        });
-
+        // priceId も subscription 由来だと取りこぼす場合があるため、lines 由来を優先
+        // （この後 lines 側で改めて拾うのでここではログだけでもOK）
+        console.log('[webhook] sub.current_period_end=', sub.current_period_end);
+      } catch (e) {
+        console.warn('[webhook] subscriptions.retrieve failed:', e);
+      }
     
-        if (mapped) {
-          await setUserPlanByCustomer(
-            String(inv.customer),
-            mapped.plan,
-            mapped.credits,
-            sub.current_period_end ?? null   // ← null セーフティ
-          );
-        } else {
-          // マッピング出来なかったが、ユーザー行は ensure 済み。
-          console.warn('[webhook] skip plan update due to unmapped price:', priceId);
-        }
+      // Invoice の明細からも拾う（こちらの方が確実）
+      const line = inv.lines?.data?.[0];
+      const fallbackEnd = line?.period?.end; // UNIX秒
+      if (!periodEnd && typeof fallbackEnd === 'number') {
+        periodEnd = fallbackEnd;
+      }
+    
+      // 3) 価格IDは lines から（subscription.items より確実）
+      const priceId = line?.price?.id ?? '';
+      const mapped = mapPrice(priceId);
+    
+      console.log('[webhook] invoice.succeeded priceId=', priceId, 'mapped=', mapped, 'periodEnd=', periodEnd);
+    
+      if (mapped) {
+        await setUserPlanByCustomer(
+          String(inv.customer),
+          mapped.plan,
+          mapped.credits,
+          periodEnd ?? null        // ← ここに最終値を渡す
+        );
+      } else {
+        console.warn('[webhook] skip plan update due to unmapped price:', priceId);
       }
       break;
     }
+
 
     
     case 'customer.subscription.deleted': {
