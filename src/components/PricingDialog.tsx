@@ -1,7 +1,40 @@
 import React from 'react';
 import { X } from 'lucide-react';
+import { scheduleDowngrade } from '@/lib/billing';
 
 type PlanKey = 'light' | 'basic' | 'pro';
+import { scheduleDowngrade } from '@/lib/billing';
+
+type Tier = 'free'|'light'|'basic'|'pro';
+const rank: Record<Tier, number> = { free:0, light:1, basic:2, pro:3 };
+
+export default function PricingDialog({
+  open, onOpenChange,
+  onBuy,                // ← アップグレード用
+  currentTier,          // ← 追加
+}: {
+  open: boolean;
+  onOpenChange: (v:boolean)=>void;
+  onBuy: (plan: 'light'|'basic'|'pro') => Promise<void>;
+  currentTier: Tier;
+}) {
+  const handleClick = async (plan: 'light'|'basic'|'pro') => {
+    try {
+      if (rank[plan] < rank[currentTier]) {
+        // ↓↓↓ ダウングレードは期末適用
+        await scheduleDowngrade(plan);
+        alert('ダウングレードを次回請求日に適用として受け付けました。');
+        onOpenChange(false);
+      } else {
+        // ↑↑↑ アップグレードは即時
+        await onBuy(plan);
+      }
+    } catch (e) {
+      console.error(e);
+      alert('処理に失敗しました。しばらくしてからお試しください。');
+    }
+  };
+
 
 type Props = {
   open: boolean;
