@@ -66,21 +66,22 @@ export async function buy(plan: Plan): Promise<void> {
 }
 
 // 期末ダウングレードをスケジュールする（サーバで Subscription Schedule を作成）
-export async function scheduleDowngrade(target: 'light'|'basic') {
-  const token = await getAccessToken(); // 既存の関数を利用
+// src/lib/billing.ts
+export async function scheduleDowngrade(plan: 'light' | 'basic' | 'pro'): Promise<void> {
+  const token = await getAccessToken();
+
   const res = await fetch('/api/stripe/schedule-downgrade', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ targetPlan: target }),
+    body: JSON.stringify({ plan }),
   });
 
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Server responded ${res.status}: ${text}`);
   }
-  return res.json(); // { ok: true, scheduled: true, scheduleId: '...' }
 }
 
