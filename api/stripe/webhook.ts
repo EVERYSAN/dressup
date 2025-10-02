@@ -119,6 +119,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       case 'checkout.session.completed': {
       const session = event.data.object as Stripe.Checkout.Session;
       if (session.mode === 'subscription' && session.subscription && session.customer) {
+
+            // 🔽 Checkout経由でも念のため自己修復（email は session 側にもあることが多い）
+        await ensureUserLinkedToCustomer({
+          customerId: String(session.customer),
+          emailHint: session.customer_details?.email ?? null,
+        });
         const priceId = await getSubscriptionPriceId(session.subscription);
         const map = mapPrice(priceId);
         if (map) {
@@ -137,6 +143,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     case 'customer.subscription.updated': {
       const sub = event.data.object as Stripe.Subscription;
       if (sub.customer) {
+        
+        const cust = await stripe.customers.retrieve(String(sub.customer)) as Stripe.Customer;
+        await ensureUserLinkedToCustomer({
+          customerId: String(sub.customer),
+          emailHint: cust.email ?? null,
+        });
         const priceId = await getSubscriptionPriceId(sub);
         const map = mapPrice(priceId);
         // 期末解約(cancel_at_period_end)でも、ここでは period_end を更新しておく
@@ -156,6 +168,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     case 'invoice.payment_succeeded': {
       const inv = event.data.object as Stripe.Invoice;
       if (inv.subscription && inv.customer) {
+            // 🔽 これを先頭に追加（email自己修復）
+        await ensureUserLinkedToCustomer({
+          customerId: String(inv.customer),
+          emailHint: inv.customer_email ?? null,   // ← Dashboard作成でも入っていることが多い
+        });
+        
         const sub = await stripe.subscriptions.retrieve(
           typeof inv.subscription === 'string' ? inv.subscription : inv.subscription.id
         );
