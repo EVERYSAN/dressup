@@ -206,6 +206,7 @@ export const Header: React.FC = () => {
         open={showPricing}
         onOpenChange={setShowPricing}
         onBuy={handleBuy}
+        currentTier={subscriptionTier || 'free'}
       />
     </>
   );
