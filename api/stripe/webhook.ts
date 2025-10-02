@@ -56,6 +56,41 @@ async function setUserPlanByCustomer(
   if (error) throw new Error(`DB update failed: ${error.message}`);
 }
 
+// webhook.ts の先頭ユーティリティ群の近くに追加
+async function ensureUserLinkedToCustomer(opts: {
+  customerId: string;
+  emailHint?: string | null;
+}) {
+  const { customerId, emailHint } = opts;
+
+  // 既にリンク済みか確認
+  const exist = await admin
+    .from('users')
+    .select('id')
+    .eq('stripe_customer_id', customerId)
+    .maybeSingle();
+
+  if (exist.data) return exist.data.id as string | null;
+
+  // 未リンクなら email で突合 → あれば stripe_customer_id を自己修復
+  if (emailHint) {
+    const byEmail = await admin
+      .from('users')
+      .select('id')
+      .eq('email', emailHint)
+      .maybeSingle();
+    if (byEmail.data) {
+      await admin
+        .from('users')
+        .update({ stripe_customer_id: customerId, updated_at: new Date().toISOString() })
+        .eq('id', byEmail.data.id);
+      return byEmail.data.id as string;
+    }
+  }
+  return null;
+}
+
+
 // ---- 価格IDの取得を“必ず成功”させるためのヘルパー ----
 async function getSubscriptionPriceId(subOrId: string | Stripe.Subscription) {
   const sub =
