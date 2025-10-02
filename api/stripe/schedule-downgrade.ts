@@ -10,7 +10,7 @@ const PRICE_LIGHT = process.env.STRIPE_PRICE_LIGHT!;
 const PRICE_BASIC = process.env.STRIPE_PRICE_BASIC!;
 const PRICE_PRO   = process.env.STRIPE_PRICE_PRO!;
 
-const stripe = new Stripe(STRIPE_KEY, { apiVersion: '2024-06-20' }); // ← 型と合わせる
+const stripe = new Stripe(STRIPE_KEY, { apiVersion: '2024-06-20' });
 
 // ==== helpers ====
 type Tier = 'free'|'light'|'basic'|'pro';
@@ -50,6 +50,30 @@ export default async function handler(req: any, res: any) {
     // 文字列で届いた時の保険
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
     const { targetPlan, targetPriceId } = body as { targetPlan?: Tier; targetPriceId?: string };
+    // 文字列のときも JSON のときも受けられるようにする
+    const raw = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+    const { plan, targetPlan, priceId, targetPriceId } = raw as {
+      plan?: 'light'|'basic'|'pro';
+      targetPlan?: 'light'|'basic'|'pro';
+      priceId?: string;
+      targetPriceId?: string;
+    };
+
+const chosenPlan = plan ?? targetPlan;
+
+const targetPrice =
+  priceId ??
+  targetPriceId ??
+  (chosenPlan === 'light' ? process.env.STRIPE_PRICE_LIGHT
+   : chosenPlan === 'basic' ? process.env.STRIPE_PRICE_BASIC
+   : chosenPlan === 'pro'   ? process.env.STRIPE_PRICE_PRO
+   : undefined);
+
+if (!targetPrice) {
+  return res.status(400).json({ error: 'Bad request: target plan/price required' });
+}
+
+console.log('[schedule-downgrade] body=', { plan, targetPlan, priceId, targetPriceId, chosenPlan, targetPrice });
 
     const targetPrice =
       targetPriceId ??
@@ -100,15 +124,14 @@ export default async function handler(req: any, res: any) {
       from_subscription: sub.id,
       phases: [
         {
-          // 現行プラン維持フェーズ
+          // 現行プラン維持（期末まで）
           items: sub.items.data.map(i => ({ price: i.price.id, quantity: i.quantity ?? 1 })),
-          end_date: sub.current_period_end,      // ← 期末で終了
-          proration_behavior: 'none',            // ← 日割りなし（型OK位置）
+          end_date: sub.current_period_end,
+          // proration_behavior は外す（型の揺れ対策）
         },
         {
           // 次期から targetPrice
           items: [{ price: targetPrice, quantity: 1 }],
-          proration_behavior: 'none',
         },
       ],
     }, {
