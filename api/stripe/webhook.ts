@@ -43,7 +43,7 @@ async function setUserPlanByCustomer(
   customerId: string,
   plan: Plan,
   creditsTotal: number,
-  periodEndUnix: number // ← 必須 & 秒
+  periodEndUnix: number | null // ← 必須 & 秒
 ) {
   // 妥当性チェック（2000-01-01〜2100-01-01 の範囲に収まるか）
   if (
