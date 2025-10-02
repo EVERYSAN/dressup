@@ -2,17 +2,17 @@
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
-// ==== env ====
 const STRIPE_KEY = process.env.STRIPE_API_KEY!;
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_ANON = process.env.SUPABASE_ANON_KEY!;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
 const PRICE_LIGHT = process.env.STRIPE_PRICE_LIGHT!;
 const PRICE_BASIC = process.env.STRIPE_PRICE_BASIC!;
 const PRICE_PRO   = process.env.STRIPE_PRICE_PRO!;
 
 const stripe = new Stripe(STRIPE_KEY, { apiVersion: '2024-06-20' });
 
-// ==== helpers ====
 type Tier = 'free'|'light'|'basic'|'pro';
 const priceToTier: Record<string, Tier> = {
   [PRICE_LIGHT]: 'light',
@@ -23,31 +23,40 @@ const tierOrder: Record<Tier, number> = { free:0, light:1, basic:2, pro:3 };
 
 function assertLower(current: Tier, next: Tier) {
   if (tierOrder[next] >= tierOrder[current]) {
-    throw new Error('Only downgrades are allowed here.');
+    const err = new Error('Only downgrades are allowed here.');
+    (err as any).status = 400;
+    throw err;
   }
 }
 
+// JWT から現在ユーザーを引く（フロントの Bearer を使用）
 async function getUserFromJWT(req: any) {
   const auth = req.headers.authorization || '';
   const m = auth.match(/^Bearer (.+)$/);
-  if (!m) throw new Error('Missing bearer token');
-
+  if (!m) {
+    const err = new Error('Missing bearer token');
+    (err as any).status = 401;
+    throw err;
+  }
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON, {
     global: { headers: { Authorization: `Bearer ${m[1]}` } },
   });
   const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) throw new Error('Invalid session');
+  if (error || !user) {
+    const err = new Error('Invalid session');
+    (err as any).status = 401;
+    throw err;
+  }
   return user;
 }
 
-// ==== handler ====
 export default async function handler(req: any, res: any) {
   try {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
     const user = await getUserFromJWT(req);
 
-    // --- ボディを文字列/JSON 両対応でパースし、plan か targetPlan か priceId か targetPriceId を受ける ---
+    // 文字列/JSON 両対応
     const raw = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
     const { plan, targetPlan, priceId, targetPriceId } = raw as {
       plan?: 'light'|'basic'|'pro';
@@ -61,43 +70,59 @@ export default async function handler(req: any, res: any) {
     const targetPrice =
       priceId ??
       targetPriceId ??
-      (chosenPlan === 'light' ? process.env.STRIPE_PRICE_LIGHT
-       : chosenPlan === 'basic' ? process.env.STRIPE_PRICE_BASIC
-       : chosenPlan === 'pro'   ? process.env.STRIPE_PRICE_PRO
+      (chosenPlan === 'light' ? PRICE_LIGHT
+       : chosenPlan === 'basic' ? PRICE_BASIC
+       : chosenPlan === 'pro'   ? PRICE_PRO
        : undefined);
 
     if (!targetPrice) {
-      return res.status(400).json({ error: 'Bad request: target plan/price required' });
+      return res.status(400).json({ error: 'Bad request', detail: 'target plan/price required' });
     }
 
-    console.log('[schedule-downgrade] body=', { plan, targetPlan, priceId, targetPriceId, chosenPlan, targetPrice });
+    console.log('[schedule-downgrade] req.body =', { plan, targetPlan, priceId, targetPriceId, chosenPlan, targetPrice });
 
-    const admin = createClient(SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    // users を service_role で読む（RLS越え）
+    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const { data: urow, error: uerr } = await admin
       .from('users')
       .select('id,email,stripe_customer_id,plan')
       .eq('id', user.id)
       .single();
-    if (uerr || !urow?.stripe_customer_id) throw new Error('No stripe_customer_id linked');
+    if (uerr) {
+      const err = new Error(`Supabase users read failed: ${uerr.message}`);
+      (err as any).status = 500;
+      throw err;
+    }
+    if (!urow?.stripe_customer_id) {
+      const err = new Error('No stripe_customer_id linked to this user');
+      (err as any).status = 400;
+      throw err;
+    }
 
-    // 現行サブスク
+    // 現行サブスクリプション（active or trialing を優先）
     const list = await stripe.subscriptions.list({
       customer: urow.stripe_customer_id,
-      status: 'active',
+      status: 'all',
       expand: ['data.items.data.price'],
-      limit: 1,
+      limit: 10,
     });
-    const sub = list.data[0];
-    if (!sub) throw new Error('Active subscription not found');
+
+    const sub = list.data.find(s => s.status === 'active' || s.status === 'trialing')
+            ?? list.data.find(s => s.status === 'past_due');
+    if (!sub) {
+      const err = new Error('Active subscription not found');
+      (err as any).status = 400;
+      throw err;
+    }
 
     const currentPriceId = sub.items.data[0]?.price?.id;
-    const currentTier = currentPriceId ? (priceToTier[currentPriceId] ?? 'free') : 'free';
-    const nextTier    = priceToTier[targetPrice] ?? 'free';
+    const currentTier: Tier = currentPriceId ? (priceToTier[currentPriceId] ?? 'free') : 'free';
+    const nextTier: Tier    = priceToTier[targetPrice] ?? 'free';
 
     // ダウングレードのみ許可
     assertLower(currentTier, nextTier);
 
-    // 既存スケジュール（重複防止）
+    // 既存スケジュールがある場合は重複作成しない
     const schedList = await stripe.subscriptionSchedules.list({
       customer: urow.stripe_customer_id,
       limit: 10,
@@ -105,50 +130,51 @@ export default async function handler(req: any, res: any) {
     });
     const existing = schedList.data.find(s => s.subscription === sub.id && s.status !== 'canceled');
     if (existing) {
+      console.log('[schedule-downgrade] schedule already exists:', existing.id);
       return res.status(200).json({ ok: true, scheduled: true, scheduleId: existing.id });
     }
 
-    // 期末にだけ下げる（2フェーズ）
-    // 既存スケジュール（重複防止）
-const schedList = await stripe.subscriptionSchedules.list({
-  customer: urow.stripe_customer_id,
-  limit: 10,
-  expand: ['data.phases.items.price'],
-});
-const existing = schedList.data.find(s => s.subscription === sub.id && s.status !== 'canceled');
-if (existing) {
-  return res.status(200).json({ ok: true, scheduled: true, scheduleId: existing.id });
-}
+    // (A) from_subscription だけでまず作成（※この時点では phases を渡さない）
+    const created = await stripe.subscriptionSchedules.create(
+      { from_subscription: sub.id },
+      { idempotencyKey: `sched-dg-${sub.id}-${targetPrice}-create` }
+    );
 
-// (A) まず from_subscription だけで作成（ここでは phases を入れない）
-const created = await stripe.subscriptionSchedules.create(
-  { from_subscription: sub.id },
-  { idempotencyKey: `sched-dg-${sub.id}-${targetPrice}-create` }
-);
-
-// (B) 続けて phases を update で設定（期末→次期の二段階）
-const updated = await stripe.subscriptionSchedules.update(
-  created.id,
-  {
-    phases: [
+    // (B) phases を update で設定（期末で現行→次期から targetPrice）
+    const updated = await stripe.subscriptionSchedules.update(
+      created.id,
       {
-        // 現行プラン維持（期末まで）
-        items: sub.items.data.map(i => ({ price: i.price.id, quantity: i.quantity ?? 1 })),
-        end_date: sub.current_period_end,
+        phases: [
+          {
+            items: sub.items.data.map(i => ({ price: i.price.id, quantity: i.quantity ?? 1 })),
+            end_date: sub.current_period_end, // 期末まで現行プラン
+          },
+          {
+            items: [{ price: targetPrice, quantity: 1 }], // 次期からダウン後プラン
+          },
+        ],
       },
-      {
-        // 次期から targetPrice
-        items: [{ price: targetPrice, quantity: 1 }],
-      },
-    ],
-  },
-  { idempotencyKey: `sched-dg-${sub.id}-${targetPrice}-update` }
-);
+      { idempotencyKey: `sched-dg-${sub.id}-${targetPrice}-update` }
+    );
 
-return res.status(200).json({ ok: true, scheduled: true, scheduleId: updated.id });
-
+    console.log('[schedule-downgrade] schedule created:', updated.id);
+    return res.status(200).json({ ok: true, scheduled: true, scheduleId: updated.id });
   } catch (e: any) {
-    console.error('[schedule-downgrade] failed:', e);
-    return res.status(500).json({ error: 'Server error', detail: e?.message ?? String(e) });
+    console.error('[schedule-downgrade] failed:', {
+      message: e?.message,
+      type: e?.type,
+      code: e?.code,
+      status: e?.status,
+      raw: e?.raw,
+      stack: e?.stack,
+    });
+    // 具体的な原因を返してフロントで把握できるようにする
+    const status = e?.status ?? 500;
+    return res.status(status).json({
+      error: status === 400 ? 'Bad request' : status === 401 ? 'Unauthorized' : 'Server error',
+      detail: e?.message ?? String(e),
+      type: e?.type,
+      code: e?.code,
+    });
   }
 }
