@@ -6,7 +6,6 @@ import { buy, openPortal, scheduleDowngrade } from '../lib/billing';
 import { supabase } from '../lib/supabaseClient';
 import PricingDialog from './PricingDialog';
 import { useAppStore } from '../store/useAppStore';
-import type { PendingChange } from '@/lib/billing';
 import BillingSummaryCard from '@/components/BillingSummaryCard';
 
 
