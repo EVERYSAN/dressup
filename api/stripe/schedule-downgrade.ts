@@ -190,7 +190,14 @@ export default async function handler(req: any, res: any) {
     );
 
     console.log('[schedule-dg] schedule created:', updated.id);
-    return res.status(200).json({ ok: true, scheduled: true, scheduleId: updated.id });
+    return res.status(200).json({
+      ok: true,
+      scheduled: true,
+      scheduleId: updated.id,
+      applyAt: cpe,                // 次回請求（適用）UNIX 秒
+      toPlan: targetPlan,          // 'light' | 'basic'
+      toPrice: targetPrice.id,     // 使う人は使う
+    });
   } catch (e: any) {
     console.error('[schedule-dg] failed:', {
       message: e?.message,
