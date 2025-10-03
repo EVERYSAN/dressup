@@ -34,10 +34,8 @@ function MiniBtn(
 export const Header: React.FC = () => {
   const setSubscriptionTier = useAppStore((s) => s.setSubscriptionTier);
   const subscriptionTier = useAppStore((s) => s.subscriptionTier);
-  // 追加（派生値）
-  const currentPlanLabel = (subscriptionTier || 'free'); // 'free' | 'light' | 'basic' | 'pro'
-  const remainingCredits = remaining;                    // number | null
-  const hasPendingChange = !!pending;                    // boolean
+  
+
 
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [isAuthed, setIsAuthed] = useState(false);
@@ -50,6 +48,10 @@ export const Header: React.FC = () => {
   const [showPricing, setShowPricing] = useState(false);
   const [pending, setPending] = useState<PendingChange | null>(null);
   const [pendingLoading, setPendingLoading] = useState(false);
+  // 追加（派生値）
+  const currentPlanLabel = (subscriptionTier || 'free'); // 'free' | 'light' | 'basic' | 'pro'
+  const remainingCredits = remaining;                    // number | null
+  const hasPendingChange = !!pending;                    // boolean
 
   // トースト
   // トースト（位置可変対応）
@@ -127,7 +129,7 @@ const toastContainerClass = (pos: ToastPos) => {
               ? Math.floor(new Date(data.period_end as any).getTime() / 1000)
               : null;
         setPeriodEndUnix(pe);
-    
+    }
   };
 
   useEffect(() => {
