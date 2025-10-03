@@ -6,6 +6,7 @@ import { buy, openPortal, scheduleDowngrade } from '../lib/billing';
 import { supabase } from '../lib/supabaseClient';
 import PricingDialog from './PricingDialog';
 import { useAppStore } from '../store/useAppStore';
+import BillingSummaryInline from '@/components/BillingSummaryInline';
 
 type PendingChange = {
   toPlan: 'light' | 'basic' | 'pro';
@@ -254,6 +255,13 @@ const loadPendingChange = async () => {
         {/* 右：購入/残数/支払い/認証/ヘルプ */}
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-2">
+            <BillingSummaryInline
+              planLabel={currentPlanLabel}       // 例: 'light'
+              remaining={remainingCredits}       // 例: 100
+              total={creditsTotal}               // 例: 100
+              nextRenewAt={periodEndUnix ?? null} // 例: 1730582400 / null
+              hasPending={hasPendingChange}      // 例: true/false
+            />
             {isAuthed ? (
               <>
                 <span
