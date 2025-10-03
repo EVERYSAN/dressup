@@ -287,11 +287,11 @@ const loadPendingChange = async () => {
                   onClick={() => setShowPricing(true)}
                   icon={<ChevronDown size={16} />}
                 >
-                  プラン購入
+                  新規プラン購入
                 </MiniBtn>
 
                 <MiniBtn onClick={openPortal} icon={<Wallet size={16} />}>
-                  支払い設定
+                  プラン変更/解約
                 </MiniBtn>
 
                 <MiniBtn onClick={signOut} icon={<LogOut size={16} />}>
