@@ -106,12 +106,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       else if (nextPriceId === process.env.STRIPE_PRICE_PRO)   nextPlan = 'pro';
     }
 
-    return res.status(200).json({
-      hasPending: true,
-      currentPlan: (row.plan || 'free'),
-      nextPlan,
-      effectiveAt: futurePhase.start_date, // UNIX秒
-    });
+   return res.status(200).json({
+  hasPending: true,
+  currentPlan: (row.plan || 'free'),
+  nextPlan,
+  effectiveAt: futurePhase.start_date, // 既存
+  // ↓ 互換フィールド（Header.tsx が読む）
+  toPlan: nextPlan ?? null,
+  applyAt: (futurePhase.start_date as number) ?? null,
+});
   } catch (e: any) {
     console.error('[pending-change] top-level error', e?.message || e);
     return res.status(500).json({ error: 'server_error', detail: String(e?.message || e) });
