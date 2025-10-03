@@ -248,11 +248,23 @@ useEffect(() => {
   };
 
   // Header 内の関数群の下に配置
+// Header.tsx 内（関数群の下にある loadPendingChange を置き換え）
 const loadPendingChange = async () => {
   try {
     setPendingLoading(true);
-    const res = await fetch('/api/stripe/pending-change', { credentials: 'include' });
+
+    // 現在の Supabase セッションから access_token を取得
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+
+    const res = await fetch('/api/stripe/pending-change', {
+      method: 'GET',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      cache: 'no-store',
+    });
+
     if (!res.ok) throw new Error(String(res.status));
+
     const data = await res.json(); // { toPlan?: 'light'|'basic'|'pro', applyAt?: number|null }
     if (data?.toPlan) {
       setPending({ toPlan: data.toPlan, applyAt: data.applyAt ?? null });
@@ -260,13 +272,13 @@ const loadPendingChange = async () => {
       setPending(null);
     }
   } catch (e) {
-    // 失敗時は静かに無視（ログだけ）
     console.warn('[pending-change] fetch failed', e);
     setPending(null);
   } finally {
     setPendingLoading(false);
   }
 };
+
 
 
   return (
