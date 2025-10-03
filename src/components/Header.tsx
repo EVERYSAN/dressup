@@ -7,6 +7,15 @@ import { supabase } from '../lib/supabaseClient';
 import PricingDialog from './PricingDialog';
 import { useAppStore } from '../store/useAppStore';
 
+type PendingChange = {
+  toPlan: 'light' | 'basic' | 'pro';
+  applyAt?: number | null; // UNIX 秒。未取得や不明なら null
+};
+
+// ↓ 既存 state 群の下に追加
+const [pending, setPending] = useState<PendingChange | null>(null);
+const [pendingLoading, setPendingLoading] = useState(false);
+
 function MiniBtn(
   props: React.ButtonHTMLAttributes<HTMLButtonElement> & { icon?: React.ReactNode }
 ) {
@@ -142,6 +151,18 @@ const toastContainerClass = (pos: ToastPos) => {
   }
 }, []);
 
+  // 既存 useEffect 群の下に追加：初回 + 60秒毎に確認
+useEffect(() => {
+  loadPendingChange();
+  const id = setInterval(loadPendingChange, 60_000);
+  return () => clearInterval(id);
+}, []);
+
+// 既存のダウングレード受付ハンドラの最後に、成功したら再取得を追加
+// handleScheduleDowngrade 内の try ブロックの最後に追記
+await loadPendingChange();
+
+
 
   const signIn = async () => {
     setLoading(true);
@@ -193,6 +214,28 @@ const toastContainerClass = (pos: ToastPos) => {
       showToast('処理に失敗しました', 'しばらくしてから再度お試しください。', pos);
     }
   };
+
+  // Header 内の関数群の下に配置
+const loadPendingChange = async () => {
+  try {
+    setPendingLoading(true);
+    const res = await fetch('/api/stripe/pending-change', { credentials: 'include' });
+    if (!res.ok) throw new Error(String(res.status));
+    const data = await res.json(); // { toPlan?: 'light'|'basic'|'pro', applyAt?: number|null }
+    if (data?.toPlan) {
+      setPending({ toPlan: data.toPlan, applyAt: data.applyAt ?? null });
+    } else {
+      setPending(null);
+    }
+  } catch (e) {
+    // 失敗時は静かに無視（ログだけ）
+    console.warn('[pending-change] fetch failed', e);
+    setPending(null);
+  } finally {
+    setPendingLoading(false);
+  }
+};
+
 
   return (
     <>
@@ -253,6 +296,49 @@ const toastContainerClass = (pos: ToastPos) => {
           </button>
         </div>
       </header>
+
+      {/* ダウングレード予約の見える化バナー */}
+      {pending && (
+        <div className="w-full border-b border-amber-200 bg-amber-50 text-amber-800 px-4 py-2">
+          <div className="max-w-screen-xl mx-auto text-sm flex items-center justify-between gap-3">
+            <div className="flex-1">
+              <strong className="mr-2">ダウングレード予約中</strong>
+              次回請求日に
+              <span className="font-semibold mx-1">「{pending.toPlan === 'light' ? 'ライト'
+                : pending.toPlan === 'basic' ? 'ベーシック' : 'プロ'}」</span>
+              へ変更されます。
+              {typeof pending.applyAt === 'number' && (
+                <span className="ml-2 text-amber-700/80">
+                  予定日時：{new Date(pending.applyAt * 1000).toLocaleString()}
+                </span>
+              )}
+            </div>
+      
+            {/* 予約を取り消すリンク（任意。実装済みなら表示） */}
+            <button
+              className="shrink-0 rounded-md border border-amber-300 bg-white/70 hover:bg-white px-3 py-1 text-xs text-amber-800"
+              onClick={async () => {
+                try {
+                  const ok = confirm('予約を取り消しますか？');
+                  if (!ok) return;
+                  const res = await fetch('/api/stripe/cancel-schedule', { method: 'POST', credentials: 'include' });
+                  if (!res.ok) throw new Error(String(res.status));
+                  showToast('ダウングレード予約を取り消しました', undefined,
+                    window.innerWidth < 768 ? 'center' : 'top-right');
+                  await loadPendingChange(); // 取り消し後に再読込
+                  await refreshCredits();    // ついでに残数も同期
+                } catch (e) {
+                  showToast('取り消しに失敗しました', '時間をおいて再度お試しください',
+                    window.innerWidth < 768 ? 'center' : 'top-right');
+                }
+              }}
+            >
+              予約を取り消す
+            </button>
+          </div>
+        </div>
+      )}
+
 
       <InfoModal open={showInfoModal} onOpenChange={setShowInfoModal} />
 
