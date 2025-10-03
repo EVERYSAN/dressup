@@ -94,4 +94,17 @@ export async function scheduleDowngrade(
     applyAt: typeof json?.applyAt === 'number' ? json.applyAt : undefined, // UNIX秒（任意）
   };
 }
+// 追記: 予約状況取得
+export type PendingChange = {
+  hasPending: boolean;
+  currentPlan?: 'free'|'light'|'basic'|'pro';
+  nextPlan?: 'free'|'light'|'basic'|'pro'|null;
+  effectiveAt?: number; // UNIX秒
+};
+
+export async function getPendingChange(): Promise<PendingChange> {
+  const r = await fetch('/api/stripe/pending-change', { method: 'GET' });
+  if (!r.ok) return { hasPending: false };
+  return r.json();
+}
 
