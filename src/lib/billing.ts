@@ -67,7 +67,9 @@ export async function buy(plan: Plan): Promise<void> {
 
 // 期末ダウングレードをスケジュールする（サーバで Subscription Schedule を作成）
 // src/lib/billing.ts
-export async function scheduleDowngrade(plan: 'light' | 'basic' | 'pro'): Promise<void> {
+export async function scheduleDowngrade(
+  plan: 'light' | 'basic' | 'pro'
+): Promise<{ scheduled: boolean; toPlan: string; applyAt?: number }> {
   const token = await getAccessToken();
 
   const res = await fetch('/api/stripe/schedule-downgrade', {
@@ -83,5 +85,13 @@ export async function scheduleDowngrade(plan: 'light' | 'basic' | 'pro'): Promis
     const text = await res.text();
     throw new Error(`Server responded ${res.status}: ${text}`);
   }
+
+  // ★ ここを追加：{ scheduled, toPlan, applyAt } を想定して受け取る
+  const json = await res.json().catch(() => ({}));
+  return {
+    scheduled: Boolean(json?.scheduled ?? true),
+    toPlan: String(json?.toPlan ?? plan),
+    applyAt: typeof json?.applyAt === 'number' ? json.applyAt : undefined, // UNIX秒（任意）
+  };
 }
 
