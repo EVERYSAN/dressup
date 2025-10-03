@@ -13,8 +13,7 @@ type PendingChange = {
 };
 
 // ↓ 既存 state 群の下に追加
-const [pending, setPending] = useState<PendingChange | null>(null);
-const [pendingLoading, setPendingLoading] = useState(false);
+
 
 function MiniBtn(
   props: React.ButtonHTMLAttributes<HTMLButtonElement> & { icon?: React.ReactNode }
@@ -42,6 +41,8 @@ export const Header: React.FC = () => {
 
   // 料金モーダル
   const [showPricing, setShowPricing] = useState(false);
+const [pending, setPending] = useState<PendingChange | null>(null);
+const [pendingLoading, setPendingLoading] = useState(false);
 
   // トースト
   // トースト（位置可変対応）
