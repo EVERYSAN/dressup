@@ -19,6 +19,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const stripe = new Stripe(STRIPE_API_KEY, { apiVersion: '2024-06-20' });
     const supabase = createClient(SUPA_URL, SUPA_SRK);
 
+    // ← 追加：フロントから渡された Bearer トークンを取り出す
+    const auth = (req.headers.authorization ?? '') as string;
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+    // ← 追加：このトークンでユーザーを解決する Supabase サーバークライアント
+    const supa = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_ANON_KEY!,
+      { global: { headers: { Authorization: `Bearer ${token}` } } }
+    );
+
+    // ← 追加：ユーザー取得
+    const { data: { user }, error: userErr } = await supa.auth.getUser();
+    if (userErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+
     // --- 認証チェック
     const authHeader = req.headers.authorization || '';
     const accessToken = authHeader.replace('Bearer ', '');
