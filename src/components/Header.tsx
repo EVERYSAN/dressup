@@ -1,5 +1,5 @@
 // src/components/Header.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { HelpCircle, LogIn, LogOut, Wallet, ChevronDown } from 'lucide-react';
 import { InfoModal } from './InfoModal';
 import { buy, openPortal, scheduleDowngrade } from '../lib/billing';
