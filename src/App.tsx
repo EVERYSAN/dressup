@@ -8,6 +8,7 @@ import { ImageCanvas } from './components/ImageCanvas';
 import { HistoryPanel } from './components/HistoryPanel';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAppStore } from './store/useAppStore';
+import BillingSummaryCard from '@/components/BillingSummaryCard';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 5 * 60 * 1000, retry: 2 } },
