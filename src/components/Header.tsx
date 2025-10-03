@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabaseClient';
 import PricingDialog from './PricingDialog';
 import { useAppStore } from '../store/useAppStore';
 import BillingSummaryInline from '@/components/BillingSummaryInline';
+import { getPendingChange, type PendingChange } from '@/lib/billing';
 
 type PendingChange = {
   toPlan: 'light' | 'basic' | 'pro';
@@ -53,6 +54,10 @@ export const Header: React.FC = () => {
   const remainingCredits = remaining;                    // number | null
   const hasPendingChange = !!pending;                    // boolean
 
+  // state 群の“下”あたりに追記
+const [pending, setPending] = useState<PendingChange | null>(null);
+const [pendingLoading, setPendingLoading] = useState(false);
+
   // トースト
   // トースト（位置可変対応）
 type ToastPos = 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'center';
@@ -83,6 +88,17 @@ const toastContainerClass = (pos: ToastPos) => {
       return 'fixed bottom-4 right-4';
   }
 };
+  
+  // マウント時/プラン変更直後に読みに行く
+const fetchPending = useCallback(async () => {
+  setPendingLoading(true);
+  try {
+    const pc = await getPendingChange();
+    setPending(pc);
+  } finally {
+    setPendingLoading(false);
+  }
+}, []);
 
 
   type Tier = 'free' | 'light' | 'basic' | 'pro';
@@ -178,6 +194,10 @@ useEffect(() => {
 
 // 既存のダウングレード受付ハンドラの最後に、成功したら再取得を追加
 // handleScheduleDowngrade 内の try ブロックの最後に追記
+
+  useEffect(() => {
+  fetchPending();
+}, [fetchPending]);
 
 
 
