@@ -1,7 +1,6 @@
 // src/components/PricingDialog.tsx
 import React from 'react';
 import { X } from 'lucide-react';
-import { scheduleDowngrade } from '@/lib/billing';
 
 type Tier = 'free' | 'light' | 'basic' | 'pro';
 const rank: Record<Tier, number> = { free: 0, light: 1, basic: 2, pro: 3 };
@@ -9,12 +8,14 @@ const rank: Record<Tier, number> = { free: 0, light: 1, basic: 2, pro: 3 };
 export default function PricingDialog({
   open,
   onOpenChange,
-  onBuy,              // アップグレード即時
+  onBuy,               // アップグレード即時
+  onScheduleDowngrade, 
   currentTier,        // 現在のユーザープラン
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onBuy: (plan: 'light' | 'basic' | 'pro') => Promise<void>;
+  onScheduleDowngrade: (plan: 'light' | 'basic' | 'pro') => Promise<void>; // ★ 追加
   currentTier: Tier;
 }) {
   if (!open) return null;
@@ -23,8 +24,7 @@ export default function PricingDialog({
     try {
       if (rank[plan] < rank[currentTier]) {
         // ↓↓↓ ダウングレードは期末にスケジュール
-        await scheduleDowngrade(plan);
-        alert('ダウングレードを次回請求日に適用として受け付けました。');
+        await onScheduleDowngrade(plan);
         onOpenChange(false);
       } else {
         // ↑↑↑ アップグレードは即時購入
