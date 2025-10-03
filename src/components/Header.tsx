@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabaseClient';
 import PricingDialog from './PricingDialog';
 import { useAppStore } from '../store/useAppStore';
 import BillingSummaryInline from '@/components/BillingSummaryInline';
-import { getPendingChange, type PendingChange } from '@/lib/billing';
+import type { PendingChange } from '@/lib/billing';
 
 
 // ↓ 既存 state 群の下に追加
@@ -82,16 +82,6 @@ const toastContainerClass = (pos: ToastPos) => {
   }
 };
   
-  // マウント時/プラン変更直後に読みに行く
-const fetchPending = useCallback(async () => {
-  setPendingLoading(true);
-  try {
-    const pc = await getPendingChange();
-    setPending(pc);
-  } finally {
-    setPendingLoading(false);
-  }
-}, []);
 
 
   type Tier = 'free' | 'light' | 'basic' | 'pro';
@@ -185,12 +175,6 @@ useEffect(() => {
   return () => clearInterval(id);
 }, []);
 
-// 既存のダウングレード受付ハンドラの最後に、成功したら再取得を追加
-// handleScheduleDowngrade 内の try ブロックの最後に追記
-
-  useEffect(() => {
-  fetchPending();
-}, [fetchPending]);
 
 
 
@@ -249,11 +233,12 @@ useEffect(() => {
 
   // Header 内の関数群の下に配置
 // Header.tsx 内（関数群の下にある loadPendingChange を置き換え）
+// Header.tsx 内（関数群の下あたり）
 const loadPendingChange = async () => {
   try {
     setPendingLoading(true);
 
-    // 現在の Supabase セッションから access_token を取得
+    // Supabase のアクセストークンを取得
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
 
@@ -262,7 +247,6 @@ const loadPendingChange = async () => {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       cache: 'no-store',
     });
-
     if (!res.ok) throw new Error(String(res.status));
 
     const data = await res.json(); // { toPlan?: 'light'|'basic'|'pro', applyAt?: number|null }
@@ -372,7 +356,13 @@ const loadPendingChange = async () => {
                 try {
                   const ok = confirm('予約を取り消しますか？');
                   if (!ok) return;
-                  const res = await fetch('/api/stripe/cancel-schedule', { method: 'POST', credentials: 'include' });
+                  const { data: { session } } = await supabase.auth.getSession();
+                  const token = session?.access_token;
+                  const res = await fetch('/api/stripe/cancel-schedule', {
+                    method: 'POST',
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                  });
+                  
                   if (!res.ok) throw new Error(String(res.status));
                   showToast('ダウングレード予約を取り消しました', undefined,
                     window.innerWidth < 768 ? 'center' : 'top-right');
