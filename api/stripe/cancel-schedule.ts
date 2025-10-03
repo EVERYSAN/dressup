@@ -1,43 +1,60 @@
 // api/stripe/cancel-schedule.ts
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-import Stripe from 'stripe';
-import { createClient } from '@supabase/supabase-js';
+// 予約済みのダウングレード等を取り消す API
+// 認証: Authorization: Bearer <access_token>
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-06-20',
-});
+import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { getStripe, requireAuth, getCustomerId, ok, bad } from './_helpers'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' })
+  }
+
+  const authHeader = req.headers.authorization || req.headers.Authorization
+  if (!authHeader || !`${authHeader}`.toLowerCase().startsWith('bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized: missing Bearer token' })
+  }
+  const accessToken = `${authHeader}`.slice('Bearer '.length)
+
   try {
-    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const stripe = getStripe()
+    const { user, supabaseAdmin } = await requireAuth(accessToken)
+    if (!user) return res.status(401).json({ error: 'Unauthorized' })
 
-    const supabase = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_ANON_KEY!,
-      { global: { headers: { Authorization: req.headers.authorization || '' } } }
-    );
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+    const customerId = await getCustomerId(supabaseAdmin, user)
+    if (!customerId) return res.status(404).json({ error: 'Customer not linked' })
 
-    const { data: urow } = await supabase
-      .from('users')
-      .select('stripe_customer_id')
-      .eq('id', user.id)
-      .maybeSingle();
+    // 現サブスクリプション取得
+    const subs = await stripe.subscriptions.list({
+      customer: customerId,
+      status: 'all',
+      expand: ['data.schedule'],
+      limit: 10,
+    })
+    const active = subs.data.find(s => s.status !== 'canceled')
+    if (!active) return ok(res, { canceled: false })
 
-    const customerId = urow?.stripe_customer_id;
-    if (!customerId) return res.status(200).json({ ok: true, canceled: false });
+    const scheduleId = active.schedule?.id
+    if (!scheduleId) return ok(res, { canceled: false })
 
-    const subs = await stripe.subscriptions.list({ customer: customerId, status: 'active', limit: 1 });
-    const sub = subs.data[0];
-    if (!sub || !sub.schedule) return res.status(200).json({ ok: true, canceled: false });
+    // 未来フェーズの削除 → 現状フェーズのみ残す（= 予約取り消し）
+    await stripe.subscriptionSchedules.update(scheduleId, {
+      end_behavior: 'release',
+      phases: [
+        {
+          items: active.items.data.map(it => ({
+            price: typeof it.price === 'string' ? it.price : it.price.id,
+            quantity: it.quantity ?? 1,
+          })),
+          start_date: 'now',
+          proration_behavior: 'none',
+        },
+      ],
+    })
 
-    const scheduleId = typeof sub.schedule === 'string' ? sub.schedule : sub.schedule.id;
-    await stripe.subscriptionSchedules.cancel(scheduleId);
-
-    return res.status(200).json({ ok: true, canceled: true });
-  } catch (e) {
-    console.error('[cancel-schedule] error', e);
-    return res.status(500).json({ error: 'Server error' });
+    return ok(res, { canceled: true })
+  } catch (e: any) {
+    console.error('[cancel-schedule] error', e?.message || e)
+    return bad(res, 'Server error')
   }
 }
