@@ -161,7 +161,7 @@ useEffect(() => {
 
 // 既存のダウングレード受付ハンドラの最後に、成功したら再取得を追加
 // handleScheduleDowngrade 内の try ブロックの最後に追記
-await loadPendingChange();
+
 
 
 
@@ -208,7 +208,8 @@ await loadPendingChange();
         : '次回請求日';
       const pos = window.innerWidth < 768 ? 'center' : 'top-right';
       showToast('ダウングレードを受け付けました', `「${res.toPlan}」に次回請求日に変更されます。`, pos);
-
+      await loadPendingChange();
+      await refreshCredits();
     } catch (e) {
       console.error('[billing] schedule downgrade failed', e);
       const pos = window.innerWidth < 768 ? 'center' : 'top-right';
