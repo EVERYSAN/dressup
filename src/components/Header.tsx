@@ -54,9 +54,6 @@ export const Header: React.FC = () => {
   const remainingCredits = remaining;                    // number | null
   const hasPendingChange = !!pending;                    // boolean
 
-  // state 群の“下”あたりに追記
-const [pending, setPending] = useState<PendingChange | null>(null);
-const [pendingLoading, setPendingLoading] = useState(false);
 
   // トースト
   // トースト（位置可変対応）
