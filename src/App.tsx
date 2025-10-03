@@ -42,6 +42,10 @@ function AppContent() {
   return (
     <div className="app-viewport bg-white text-gray-900 flex flex-col font-sans">
       <Header />
+      {/* プラン情報（保留中のダウングレードなどを表示） */}
+      <div className="px-4 sm:px-6 py-4">
+        <BillingSummaryCard />
+      </div>
 
       {/* コンテンツ（モバイルはタブ分の下余白を追加） */}
       <div className={cn("flex-1 flex min-h-0 relative", isMobile && "with-tabbar-pad")}>
