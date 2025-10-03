@@ -9,10 +9,6 @@ import { useAppStore } from '../store/useAppStore';
 import BillingSummaryInline from '@/components/BillingSummaryInline';
 import { getPendingChange, type PendingChange } from '@/lib/billing';
 
-type PendingChange = {
-  toPlan: 'light' | 'basic' | 'pro';
-  applyAt?: number | null; // UNIX 秒。未取得や不明なら null
-};
 
 // ↓ 既存 state 群の下に追加
 
