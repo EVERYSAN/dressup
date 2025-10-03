@@ -1,78 +1,108 @@
-// api/stripe/pending-change.ts
-// ダウングレード等の「保留中変更」を Stripe Subscription Schedule から読み出す API
-// 認証: Authorization: Bearer <access_token> （フロントは supabase.auth.getSession() で取得）
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import Stripe from 'stripe';
+import { createClient } from '@supabase/supabase-js';
 
-import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { getStripe, requireAuth, getCustomerId, ok, bad } from './_helpers'
-import { planFromPriceId } from './_planMap'
+function requireEnv(name: string) {
+  const v = process.env[name];
+  if (!v) throw new Error(`ENV ${name} is required`);
+  return v;
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' })
-  }
-
-  // 1) 認証（Authorization ヘッダ必須）
-  const authHeader = req.headers.authorization || req.headers.Authorization
-  if (!authHeader || !`${authHeader}`.toLowerCase().startsWith('bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized: missing Bearer token' })
-  }
-  const accessToken = `${authHeader}`.slice('Bearer '.length)
-
   try {
-    // 2) Stripe/Supabase 周りの準備
-    const stripe = getStripe()
-    const { user, supabaseAdmin } = await requireAuth(accessToken) // サーバ側でJWTを検証
-    if (!user) return res.status(401).json({ error: 'Unauthorized' })
+    // 必須ENV
+    const STRIPE_API_KEY = requireEnv('STRIPE_API_KEY');
+    const SUPA_URL       = requireEnv('SUPABASE_URL');
+    const SUPA_SRK       = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
+    const SUPA_ANON      = requireEnv('SUPABASE_ANON_KEY');
 
-    // 3) user → stripe_customer_id 取得（users テーブル or auth.users → users）
-    const customerId = await getCustomerId(supabaseAdmin, user)
-    if (!customerId) return res.status(404).json({ error: 'Customer not linked' })
+    const stripe   = new Stripe(STRIPE_API_KEY, { apiVersion: '2024-06-20' });
+    const admin    = createClient(SUPA_URL, SUPA_SRK); // DB操作用（サービスロール）
 
-    // 4) 現在のサブスクリプションを取得
-    const subs = await stripe.subscriptions.list({
-      customer: customerId,
-      status: 'all',
-      expand: ['data.schedule', 'data.items.data.price'],
-      limit: 10,
-    })
-    const active = subs.data.find(s => s.status !== 'canceled')
-    if (!active) return ok(res, { pending: null })
+    // フロントからの Bearer トークンで “誰のリクエストか” を確定
+    const auth = (req.headers.authorization ?? '') as string;
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
 
-    // 5) 予約変更は subscription.schedule の current_phase/next_release などに出る
-    //    ここでは schedule の phases を見て「未来のフェーズ」があれば pending として返す
-    const scheduleId = active.schedule?.id
-    if (!scheduleId) return ok(res, { pending: null })
+    const supa = createClient(
+      SUPA_URL,
+      SUPA_ANON,
+      { global: { headers: { Authorization: `Bearer ${token}` } } }
+    );
 
-    const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId, {
-      expand: ['phases.items.price'],
-    })
+    const { data: { user }, error: userErr } = await supa.auth.getUser();
+    if (userErr || !user) return res.status(401).json({ error: 'Unauthorized' });
 
-    // schedule.phases のうち、start_date が「今より未来」のフェーズを拾う
-    const now = Math.floor(Date.now() / 1000)
-    const future = schedule.phases?.find(p => (typeof p.start_date === 'number' ? p.start_date : 0) > now)
+    // アプリDBからカスタマーID取得
+    const { data: row, error: rerr } = await admin
+      .from('users')
+      .select('stripe_customer_id, plan, period_end')
+      .eq('id', user.id)
+      .single();
 
-    if (!future) {
-      return ok(res, { pending: null })
+    if (rerr || !row?.stripe_customer_id) {
+      if (rerr) console.error('[pending-change] select users error', rerr);
+      return res.status(200).json({ hasPending: false });
     }
 
-    // 6) 未来フェーズの先頭アイテムの price から “どのプランへ行くか” を判定
-    const nextPriceId =
-      future.items?.[0]?.price && typeof future.items[0].price !== 'string'
-        ? future.items[0].price.id
-        : (future.items?.[0]?.price as string | undefined)
+    // 現在の subscription を取得（schedule を expand）
+    let subList;
+    try {
+      subList = await stripe.subscriptions.list({
+        customer: row.stripe_customer_id,
+        status: 'active',
+        limit: 1,
+        expand: ['data.schedule', 'data.items.data.price.product'],
+      });
+    } catch (e) {
+      console.error('[pending-change] stripe.subscriptions.list error', e);
+      return res.status(200).json({ hasPending: false });
+    }
 
-    const nextPlan = nextPriceId ? planFromPriceId(nextPriceId) : null
+    const sub = subList.data[0];
+    if (!sub || !sub.schedule) {
+      return res.status(200).json({ hasPending: false });
+    }
 
-    return ok(res, {
-      pending: {
-        next_plan: nextPlan, // 'light' | 'basic' | 'pro' | null
-        next_price_id: nextPriceId ?? null,
-        start_date_unix: typeof future.start_date === 'number' ? future.start_date : null,
-        proration_behavior: schedule?.phases?.[0]?.proration_behavior ?? null,
-      },
-    })
+    // schedule 取得
+    let schedule;
+    try {
+      schedule = await stripe.subscriptionSchedules.retrieve(
+        typeof sub.schedule === 'string' ? sub.schedule : sub.schedule.id
+      );
+    } catch (e) {
+      console.error('[pending-change] retrieve schedule error', e);
+      return res.status(200).json({ hasPending: false });
+    }
+
+    // 将来フェーズを探す
+    const now = Math.floor(Date.now() / 1000);
+    const futurePhase = schedule.phases?.find(ph => (ph.start_date as number) > now) || null;
+    if (!futurePhase) {
+      return res.status(200).json({ hasPending: false });
+    }
+
+    // 次のプラン推定
+    const nextPriceId = futurePhase.items?.[0]?.price as string | undefined;
+    let nextPlan: 'free' | 'light' | 'basic' | 'pro' | null = null;
+    if (nextPriceId) {
+      if (nextPriceId === process.env.STRIPE_PRICE_LIGHT) nextPlan = 'light';
+      else if (nextPriceId === process.env.STRIPE_PRICE_BASIC) nextPlan = 'basic';
+      else if (nextPriceId === process.env.STRIPE_PRICE_PRO)   nextPlan = 'pro';
+    }
+
+    return res.status(200).json({
+      hasPending: true,
+      currentPlan: (row.plan || 'free'),
+      nextPlan,
+      effectiveAt: futurePhase.start_date,
+      // Header.tsx が読む互換フィールド
+      toPlan: nextPlan ?? null,
+      applyAt: (futurePhase.start_date as number) ?? null,
+    });
+
   } catch (e: any) {
-    console.error('[pending-change] error', e?.message || e)
-    return bad(res, 'Server error')
+    console.error('[pending-change] top-level error', e?.message || e);
+    return res.status(500).json({ error: 'server_error', detail: String(e?.message || e) });
   }
 }
