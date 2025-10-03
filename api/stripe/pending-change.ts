@@ -13,7 +13,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     // --- 必須ENVチェック（無ければ 500 だが、明確なメッセージを返す）
     const STRIPE_API_KEY = requireEnv('STRIPE_API_KEY');
-    const SUPA_URL       = requireEnv('NEXT_PUBLIC_SUPABASE_URL');
+    const SUPA_URL       = requireEnv('NEXT_PUBLIC_APP_URL');
     const SUPA_SRK       = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
 
     const stripe = new Stripe(STRIPE_API_KEY, { apiVersion: '2024-06-20' });
