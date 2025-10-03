@@ -323,25 +323,7 @@ const loadPendingChange = async () => {
         </div>
       </header>
 
-      {/* ダウングレード予約の見える化バナー */}
-      {pending && (
-        <div className="w-full border-b border-amber-200 bg-amber-50 text-amber-800 px-4 py-2">
-          <div className="max-w-screen-xl mx-auto text-sm flex items-center justify-between gap-3">
-            <div className="flex-1">
-              <strong className="mr-2">ダウングレード予約中</strong>
-              次回請求日に
-              <span className="font-semibold mx-1">「{pending.toPlan === 'light' ? 'ライト'
-                : pending.toPlan === 'basic' ? 'ベーシック' : 'プロ'}」</span>
-              へ変更されます。
-              {typeof pending.applyAt === 'number' && (
-                <span className="ml-2 text-amber-700/80">
-                  予定日時：{new Date(pending.applyAt * 1000).toLocaleString()}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+
 
 
       <InfoModal open={showInfoModal} onOpenChange={setShowInfoModal} />
