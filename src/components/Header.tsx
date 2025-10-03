@@ -2,11 +2,10 @@
 import React, { useEffect, useState } from 'react';
 import { HelpCircle, LogIn, LogOut, Wallet, ChevronDown } from 'lucide-react';
 import { InfoModal } from './InfoModal';
-import { buy, openPortal } from '../lib/billing';
+import { buy, openPortal, scheduleDowngrade } from '../lib/billing';
 import { supabase } from '../lib/supabaseClient';
-import PricingDialog from './PricingDialog'; // ← 追加
+import PricingDialog from './PricingDialog';
 import { useAppStore } from '../store/useAppStore';
-
 
 function MiniBtn(
   props: React.ButtonHTMLAttributes<HTMLButtonElement> & { icon?: React.ReactNode }
@@ -26,13 +25,21 @@ function MiniBtn(
 export const Header: React.FC = () => {
   const setSubscriptionTier = useAppStore((s) => s.setSubscriptionTier);
   const subscriptionTier = useAppStore((s) => s.subscriptionTier);
+
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [isAuthed, setIsAuthed] = useState(false);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // ← 追加：料金モーダルの開閉
+  // 料金モーダル
   const [showPricing, setShowPricing] = useState(false);
+
+  // トースト
+  const [toast, setToast] = useState<null | { title: string; desc?: string }>(null);
+  const showToast = (title: string, desc?: string) => {
+    setToast({ title, desc });
+    setTimeout(() => setToast(null), 4500);
+  };
 
   type Tier = 'free' | 'light' | 'basic' | 'pro';
 
@@ -43,7 +50,6 @@ export const Header: React.FC = () => {
     pro:   'プロ',
   };
 
-  // Tailwind の色はお好みで調整可
   const tierClass: Record<Tier, string> = {
     free:  'bg-gray-100 text-gray-600 border border-gray-200',
     light: 'bg-sky-50 text-sky-700 border border-sky-200',
@@ -57,18 +63,20 @@ export const Header: React.FC = () => {
     if (!uid) {
       setIsAuthed(false);
       setRemaining(null);
-      setSubscriptionTier?.('free');  // ログアウト時は free に戻す
+      setSubscriptionTier?.('free');
       return;
     }
     setIsAuthed(true);
-    const { data, error } = await supabase.from('users')
-      .select('credits_total, credits_used, plan')   // ← plan を一緒に取得
+    const { data, error } = await supabase
+      .from('users')
+      .select('credits_total, credits_used, plan')
       .eq('id', uid)
       .single();
+
     if (!error && data) {
       setRemaining((data.credits_total ?? 0) - (data.credits_used ?? 0));
-      const tier = String(data.plan ?? 'free').toLowerCase() as any;
-      setSubscriptionTier?.(tier);    // ← store へ反映：light/basic/pro なら透かしOFF
+      const tier = String(data.plan ?? 'free').toLowerCase() as Tier;
+      setSubscriptionTier?.(tier);
     }
   };
 
@@ -79,37 +87,31 @@ export const Header: React.FC = () => {
     });
     return () => sub.subscription.unsubscribe();
   }, []);
-    // ✅ Checkout/Portal から戻った直後に残数を再取得（webhook遅延を吸収）
+
+  // Checkout/Portal から戻った時の反映を少し強めに
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
     const cameFromCheckout = sp.get('checkout') === 'success';
     const cameFromPortal = sp.get('portal') === 'return';
     if (!cameFromCheckout && !cameFromPortal) return;
 
-    // すぐ1回
     refreshCredits();
-
-    // webhook反映まで数秒ポーリング（最大10秒）
     const tick = setInterval(refreshCredits, 2000);
     const stop = setTimeout(() => {
       clearInterval(tick);
-      // 見た目のためにクエリを消す（再来訪時に誤検知しない）
       try { window.history.replaceState({}, '', window.location.pathname); } catch {}
     }, 10000);
-
     return () => {
       clearInterval(tick);
       clearTimeout(stop);
     };
   }, []);
 
-
   const signIn = async () => {
     setLoading(true);
     try {
       await supabase.auth.signInWithOAuth({
         provider: 'google',
-        // 成功時は同一オリジン（/#access_token で戻ってくる）
         options: { redirectTo: window.location.origin },
       });
     } finally {
@@ -123,18 +125,33 @@ export const Header: React.FC = () => {
       await supabase.auth.signOut();
       setIsAuthed(false);
       setRemaining(null);
+      setSubscriptionTier?.('free');
     } finally {
       setLoading(false);
     }
   };
 
-  // ← 追加：PricingDialog から呼ばれる購入ハンドラ（そのまま buy を呼ぶ）
   const handleBuy = async (plan: 'light' | 'basic' | 'pro') => {
     try {
       await buy(plan);
     } catch (e) {
       console.error('[billing] buy error', e);
       alert('購入ページに進めませんでした。');
+    }
+  };
+
+  // ダウングレード（期末適用）予約 → トースト
+  const handleScheduleDowngrade = async (plan: 'light' | 'basic' | 'pro') => {
+    try {
+      const res = await scheduleDowngrade(plan);
+      const when = res.applyAt ? new Date(res.applyAt * 1000) : null;
+      const dateLabel = when
+        ? `${when.getMonth() + 1}/${when.getDate()} ${when.getHours()}:${String(when.getMinutes()).padStart(2, '0')}`
+        : '次回請求日';
+      showToast('ダウングレードを受け付けました', `「${res.toPlan}」に ${dateLabel} に変更されます。`);
+    } catch (e) {
+      console.error('[billing] schedule downgrade failed', e);
+      showToast('処理に失敗しました', 'しばらくしてから再度お試しください。');
     }
   };
 
@@ -155,8 +172,7 @@ export const Header: React.FC = () => {
           <div className="flex items-center gap-2">
             {isAuthed ? (
               <>
-                {/* プラン表示 */}
-            　  <span
+                <span
                   className={`rounded-full px-3 py-1 text-sm ${tierClass[subscriptionTier || 'free']}`}
                   title="現在のご利用プラン"
                 >
@@ -166,7 +182,7 @@ export const Header: React.FC = () => {
                   残り {remaining ?? '-'} 回
                 </span>
 
-                {/* プラン購入 → モーダル起動に変更 */}
+                {/* モーダル起動 */}
                 <MiniBtn
                   onClick={() => setShowPricing(true)}
                   icon={<ChevronDown size={16} />}
@@ -174,7 +190,7 @@ export const Header: React.FC = () => {
                   プラン購入
                 </MiniBtn>
 
-                <MiniBtn onClick={openPortal} icon={<Wallet size={16} />}>
+                <MiniBtn onClick={openPortal} icon={<Wallet size={16 />}>
                   支払い設定
                 </MiniBtn>
 
@@ -201,13 +217,32 @@ export const Header: React.FC = () => {
 
       <InfoModal open={showInfoModal} onOpenChange={setShowInfoModal} />
 
-      {/* 追加：料金モーダル（中央表示・背景スクロール固定はコンポーネント側で制御） */}
+      {/* 料金モーダル */}
       <PricingDialog
         open={showPricing}
         onOpenChange={setShowPricing}
         onBuy={handleBuy}
+        onScheduleDowngrade={handleScheduleDowngrade}
         currentTier={subscriptionTier || 'free'}
       />
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-4 right-4 z-50">
+          <div className="rounded-xl border border-gray-200 bg-white/95 backdrop-blur px-4 py-3 shadow-xl">
+            <div className="font-semibold text-gray-900">{toast.title}</div>
+            {toast.desc && <div className="mt-0.5 text-sm text-gray-600">{toast.desc}</div>}
+            <div className="mt-2 flex justify-end">
+              <button
+                className="text-sm text-gray-500 hover:text-gray-700"
+                onClick={() => setToast(null)}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };
