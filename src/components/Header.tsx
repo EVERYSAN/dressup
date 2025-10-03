@@ -41,8 +41,8 @@ export const Header: React.FC = () => {
 
   // 料金モーダル
   const [showPricing, setShowPricing] = useState(false);
-const [pending, setPending] = useState<PendingChange | null>(null);
-const [pendingLoading, setPendingLoading] = useState(false);
+  const [pending, setPending] = useState<PendingChange | null>(null);
+  const [pendingLoading, setPendingLoading] = useState(false);
 
   // トースト
   // トースト（位置可変対応）
