@@ -34,11 +34,17 @@ function MiniBtn(
 export const Header: React.FC = () => {
   const setSubscriptionTier = useAppStore((s) => s.setSubscriptionTier);
   const subscriptionTier = useAppStore((s) => s.subscriptionTier);
+  // 追加（派生値）
+  const currentPlanLabel = (subscriptionTier || 'free'); // 'free' | 'light' | 'basic' | 'pro'
+  const remainingCredits = remaining;                    // number | null
+  const hasPendingChange = !!pending;                    // boolean
 
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [isAuthed, setIsAuthed] = useState(false);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [creditsTotal, setCreditsTotal] = useState<number | null>(null);
+  const [periodEndUnix, setPeriodEndUnix] = useState<number | null>(null);
 
   // 料金モーダル
   const [showPricing, setShowPricing] = useState(false);
@@ -105,7 +111,7 @@ const toastContainerClass = (pos: ToastPos) => {
     setIsAuthed(true);
     const { data, error } = await supabase
       .from('users')
-      .select('credits_total, credits_used, plan')
+      .select('credits_total, credits_used, plan, period_end')
       .eq('id', uid)
       .single();
 
@@ -113,7 +119,15 @@ const toastContainerClass = (pos: ToastPos) => {
       setRemaining((data.credits_total ?? 0) - (data.credits_used ?? 0));
       const tier = String(data.plan ?? 'free').toLowerCase() as Tier;
       setSubscriptionTier?.(tier);
-    }
+      setCreditsTotal(data.credits_total ?? null);
+        const pe =
+          typeof data.period_end === 'number'
+            ? data.period_end
+            : data.period_end
+              ? Math.floor(new Date(data.period_end as any).getTime() / 1000)
+              : null;
+        setPeriodEndUnix(pe);
+    
   };
 
   useEffect(() => {
