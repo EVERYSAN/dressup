@@ -8,6 +8,7 @@ import PricingDialog from './PricingDialog';
 import { useAppStore } from '../store/useAppStore';
 import BillingSummaryInline from '@/components/BillingSummaryInline';
 import type { PendingChange } from '@/lib/billing';
+import BillingSummaryCard from '@/components/BillingSummaryCard';
 
 
 // ↓ 既存 state 群の下に追加
