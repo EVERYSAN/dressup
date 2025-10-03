@@ -46,7 +46,6 @@ export const Header: React.FC = () => {
   // 追加（派生値）
   const currentPlanLabel = (subscriptionTier || 'free'); // 'free' | 'light' | 'basic' | 'pro'
   const remainingCredits = remaining;                    // number | null
-  const hasPendingChange = !!pending;                    // boolean
 
 
   // トースト
@@ -166,12 +165,6 @@ const toastContainerClass = (pos: ToastPos) => {
   }
 }, []);
 
-  // 既存 useEffect 群の下に追加：初回 + 60秒毎に確認
-useEffect(() => {
-  loadPendingChange();
-  const id = setInterval(loadPendingChange, 60_000);
-  return () => clearInterval(id);
-}, []);
 
 
 
