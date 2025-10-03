@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { HelpCircle, LogIn, LogOut, Wallet, ChevronDown } from 'lucide-react';
 import { InfoModal } from './InfoModal';
-import { buy, openPortal } from '../lib/billing';
+import { buy, openPortal, scheduleDowngrade } from '../lib/billing';
 import { supabase } from '../lib/supabaseClient';
 import PricingDialog from './PricingDialog'; // ← 追加
 import { useAppStore } from '../store/useAppStore';
@@ -33,6 +33,11 @@ export const Header: React.FC = () => {
 
   // ← 追加：料金モーダルの開閉
   const [showPricing, setShowPricing] = useState(false);
+  const [toast, setToast] = useState<null | { title: string; desc?: string }>(null);
+  const showToast = (title: string, desc?: string) => {
+  setToast({ title, desc });
+  setTimeout(() => setToast(null), 4500); // 4.5秒で消える
+};
 
   type Tier = 'free' | 'light' | 'basic' | 'pro';
 
@@ -206,10 +211,46 @@ export const Header: React.FC = () => {
         open={showPricing}
         onOpenChange={setShowPricing}
         onBuy={handleBuy}
+        onScheduleDowngrade={handleScheduleDowngrade}
         currentTier={subscriptionTier || 'free'}
       />
     </>
   );
 };
+{/* --- Toast --- */}
+{toast && (
+  <div className="fixed bottom-4 right-4 z-50">
+    <div className="rounded-xl border border-gray-200 bg-white/95 backdrop-blur px-4 py-3 shadow-xl">
+      <div className="font-semibold text-gray-900">{toast.title}</div>
+      {toast.desc && <div className="mt-0.5 text-sm text-gray-600">{toast.desc}</div>}
+      <div className="mt-2 flex justify-end">
+        <button
+          className="text-sm text-gray-500 hover:text-gray-700"
+          onClick={() => setToast(null)}
+        >
+          OK
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
 
 export default Header;
+// ダウングレード（期末適用）を予約 → トースト表示
+const handleScheduleDowngrade = async (plan: 'light' | 'basic' | 'pro') => {
+  try {
+    const res = await scheduleDowngrade(plan);
+    const when = res.applyAt ? new Date(res.applyAt * 1000) : null;
+    const dateLabel = when
+      ? `${when.getMonth() + 1}/${when.getDate()} ${when.getHours()}:${String(when.getMinutes()).padStart(2, '0')}`
+      : '次回請求日';
+    showToast(
+      'ダウングレードを受け付けました',
+      `「${res.toPlan}」に ${dateLabel} に変更されます。`
+    );
+  } catch (e: any) {
+    console.error('[billing] schedule downgrade failed', e);
+    showToast('処理に失敗しました', 'しばらくしてから再度お試しください。');
+  }
+};
