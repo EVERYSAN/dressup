@@ -7,74 +7,78 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2024-06-20',
 });
 
-// env の price -> plan/credits マップ（既存と同値に）
-const PRICE_LIGHT = process.env.STRIPE_PRICE_LIGHT!;
-const PRICE_BASIC = process.env.STRIPE_PRICE_BASIC!;
-const PRICE_PRO   = process.env.STRIPE_PRICE_PRO!;
-type Plan = 'free'|'light'|'basic'|'pro';
-function mapPriceIdToPlan(priceId: string): { plan: Plan; credits: number } | null {
-  switch (priceId) {
-    case PRICE_LIGHT: return { plan: 'light', credits: 100 };
-    case PRICE_BASIC: return { plan: 'basic', credits: 500 };
-    case PRICE_PRO:   return { plan: 'pro',   credits: 1200 };
-    default:          return null;
-  }
-}
+// Supabase（既存のクライアントファイルがあるならそちらでもOK）
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY! // 読み取りだけでも SRK が安全
+);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    // 認証ユーザーの subscription を突き止める
+    const authHeader = req.headers.authorization || '';
+    const accessToken = authHeader.replace('Bearer ', '');
+    if (!accessToken) return res.status(401).json({ error: 'unauthorized' });
 
-    // Supabase（ユーザ識別用）
-    const supabase = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_ANON_KEY!,
-      { global: { headers: { Authorization: req.headers.authorization || '' } } }
-    );
-    const { data: { user }, error: getUserErr } = await supabase.auth.getUser();
-    if (getUserErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const { data: { user }, error: uerr } = await supabase.auth.getUser(accessToken);
+    if (uerr || !user) return res.status(401).json({ error: 'unauthorized' });
 
-    // stripe_customer_id を users から取る
-    const { data: urow, error: qerr } = await supabase
+    const { data: row, error: rerr } = await supabase
       .from('users')
-      .select('stripe_customer_id')
+      .select('stripe_customer_id, plan, period_end')
       .eq('id', user.id)
-      .maybeSingle();
+      .single();
 
-    if (qerr) return res.status(500).json({ error: 'Server error' });
-    const customerId = urow?.stripe_customer_id;
-    if (!customerId) return res.status(200).json({ ok: true, pending: false });
-
-    // アクティブ購読
-    const subs = await stripe.subscriptions.list({ customer: customerId, status: 'active', limit: 1 });
-    const sub = subs.data[0];
-    if (!sub) return res.status(200).json({ ok: true, pending: false });
-
-    // 予約スケジュールの確認
-    if (sub.schedule) {
-      const scheduleId = typeof sub.schedule === 'string' ? sub.schedule : sub.schedule.id;
-      const sched = await stripe.subscriptionSchedules.retrieve(scheduleId, { expand: ['phases.items.price'] });
-
-      const next = sched.phases?.[1] ?? null;
-      if (!next) return res.status(200).json({ ok: true, pending: false });
-
-      const applyAt = next.start_date ?? null;
-      const priceObj = next.items?.[0]?.price ?? null;
-      const priceId = typeof priceObj === 'string' ? priceObj : priceObj?.id;
-      const mapped = priceId ? mapPriceIdToPlan(priceId) : null;
-
-      return res.status(200).json({
-        ok: true,
-        pending: true,
-        scheduleId,
-        applyAt,
-        toPlan: mapped?.plan ?? null,
-      });
+    if (rerr || !row?.stripe_customer_id) {
+      return res.status(200).json({ hasPending: false }); // 予約なし扱い
     }
 
-    return res.status(200).json({ ok: true, pending: false });
-  } catch (e) {
+    // 現在の Subscription を取得（customer から引く）
+    const subs = await stripe.subscriptions.list({
+      customer: row.stripe_customer_id,
+      status: 'active',
+      limit: 1,
+      expand: ['data.schedule', 'data.items.data.price.product'],
+    });
+    const sub = subs.data[0];
+    if (!sub) return res.status(200).json({ hasPending: false });
+
+    // 予約は Subscription Schedule にぶら下がる
+    // schedule が無ければ予約はない
+    if (!sub.schedule) {
+      return res.status(200).json({ hasPending: false });
+    }
+
+    // schedule の将来フェーズを探す
+    const schedule = await stripe.subscriptionSchedules.retrieve(
+      typeof sub.schedule === 'string' ? sub.schedule : sub.schedule.id
+    );
+
+    const now = Math.floor(Date.now() / 1000);
+    const futurePhase =
+      schedule.phases?.find(ph => (ph.start_date as number) > now) || null;
+
+    if (!futurePhase) {
+      return res.status(200).json({ hasPending: false });
+    }
+
+    // 次フェーズの先頭アイテムの price から “次のプラン” を推定
+    const nextPriceId = futurePhase.items?.[0]?.price as string | undefined;
+    let nextPlan: 'light' | 'basic' | 'pro' | 'free' | null = null;
+    if (nextPriceId) {
+      if (nextPriceId === process.env.STRIPE_PRICE_LIGHT) nextPlan = 'light';
+      else if (nextPriceId === process.env.STRIPE_PRICE_BASIC) nextPlan = 'basic';
+      else if (nextPriceId === process.env.STRIPE_PRICE_PRO) nextPlan = 'pro';
+    }
+
+    return res.status(200).json({
+      hasPending: true,
+      currentPlan: (row.plan || 'free'),
+      nextPlan,
+      effectiveAt: futurePhase.start_date, // UNIX 秒
+    });
+  } catch (e: any) {
     console.error('[pending-change] error', e);
-    return res.status(500).json({ error: 'Server error' });
+    return res.status(500).json({ error: 'server_error' });
   }
 }
