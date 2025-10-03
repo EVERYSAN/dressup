@@ -35,11 +35,36 @@ export const Header: React.FC = () => {
   const [showPricing, setShowPricing] = useState(false);
 
   // トースト
-  const [toast, setToast] = useState<null | { title: string; desc?: string }>(null);
-  const showToast = (title: string, desc?: string) => {
-    setToast({ title, desc });
-    setTimeout(() => setToast(null), 4500);
-  };
+  // トースト（位置可変対応）
+type ToastPos = 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'center';
+
+const [toast, setToast] = useState<null | { title: string; desc?: string }>(null);
+const [toastPos, setToastPos] = useState<ToastPos>('bottom-right');
+
+// 位置も渡せる showToast
+const showToast = (title: string, desc?: string, pos: ToastPos = 'bottom-right') => {
+  setToastPos(pos);
+  setToast({ title, desc });
+  setTimeout(() => setToast(null), 4500);
+};
+
+// 位置に応じたコンテナのクラス計算
+const toastContainerClass = (pos: ToastPos) => {
+  switch (pos) {
+    case 'top-right':
+      return 'fixed top-4 right-4';
+    case 'top-left':
+      return 'fixed top-4 left-4';
+    case 'bottom-left':
+      return 'fixed bottom-4 left-4';
+    case 'center':
+      // 画面中央（スマホ/PC共通）
+      return 'fixed inset-0 flex items-center justify-center';
+    default:
+      return 'fixed bottom-4 right-4';
+  }
+};
+
 
   type Tier = 'free' | 'light' | 'basic' | 'pro';
 
@@ -107,6 +132,17 @@ export const Header: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('upgraded') === '1') {
+    const pos = window.innerWidth < 768 ? 'center' : 'top-right';
+    showToast('アップグレード完了', 'ご利用可能回数が増えました。', pos);
+    params.delete('upgraded');
+    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+  }
+}, []);
+
+
   const signIn = async () => {
     setLoading(true);
     try {
@@ -148,10 +184,13 @@ export const Header: React.FC = () => {
       const dateLabel = when
         ? `${when.getMonth() + 1}/${when.getDate()} ${when.getHours()}:${String(when.getMinutes()).padStart(2, '0')}`
         : '次回請求日';
-      showToast('ダウングレードを受け付けました', `「${res.toPlan}」に ${dateLabel} に変更されます。`);
+      const pos = window.innerWidth < 768 ? 'center' : 'top-right';
+      showToast('ダウングレードを受け付けました', `「${res.toPlan}」に次回請求日に変更されます。`, pos);
+
     } catch (e) {
       console.error('[billing] schedule downgrade failed', e);
-      showToast('処理に失敗しました', 'しばらくしてから再度お試しください。');
+      const pos = window.innerWidth < 768 ? 'center' : 'top-right';
+      showToast('処理に失敗しました', 'しばらくしてから再度お試しください。', pos);
     }
   };
 
@@ -227,9 +266,11 @@ export const Header: React.FC = () => {
       />
 
       {/* Toast */}
+      {/* Toast */}
       {toast && (
-        <div className="fixed bottom-4 right-4 z-50">
-          <div className="rounded-xl border border-gray-200 bg-white/95 backdrop-blur px-4 py-3 shadow-xl">
+        <div className={`${toastContainerClass(toastPos)} z-50`}>
+          <div className="rounded-xl border border-gray-200 bg-white/95 backdrop-blur px-4 py-3 shadow-xl
+                          max-w-[92vw] sm:max-w-md w-[min(92vw,28rem)] pointer-events-auto">
             <div className="font-semibold text-gray-900">{toast.title}</div>
             {toast.desc && <div className="mt-0.5 text-sm text-gray-600">{toast.desc}</div>}
             <div className="mt-2 flex justify-end">
@@ -243,6 +284,7 @@ export const Header: React.FC = () => {
           </div>
         </div>
       )}
+
     </>
   );
 };
