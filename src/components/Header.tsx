@@ -6,7 +6,6 @@ import { buy, openPortal, scheduleDowngrade } from '../lib/billing';
 import { supabase } from '../lib/supabaseClient';
 import PricingDialog from './PricingDialog';
 import { useAppStore } from '../store/useAppStore';
-import BillingSummaryInline from '@/components/BillingSummaryInline';
 import type { PendingChange } from '@/lib/billing';
 import BillingSummaryCard from '@/components/BillingSummaryCard';
 
@@ -44,8 +43,6 @@ export const Header: React.FC = () => {
 
   // 料金モーダル
   const [showPricing, setShowPricing] = useState(false);
-  const [pending, setPending] = useState<PendingChange | null>(null);
-  const [pendingLoading, setPendingLoading] = useState(false);
   // 追加（派生値）
   const currentPlanLabel = (subscriptionTier || 'free'); // 'free' | 'light' | 'basic' | 'pro'
   const remainingCredits = remaining;                    // number | null
@@ -281,13 +278,6 @@ const loadPendingChange = async () => {
         {/* 右：購入/残数/支払い/認証/ヘルプ */}
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-2">
-            <BillingSummaryInline
-              planLabel={currentPlanLabel}       // 例: 'light'
-              remaining={remainingCredits}       // 例: 100
-              total={creditsTotal}               // 例: 100
-              nextRenewAt={periodEndUnix ?? null} // 例: 1730582400 / null
-              hasPending={hasPendingChange}      // 例: true/false
-            />
             {isAuthed ? (
               <>
                 <span
@@ -349,34 +339,6 @@ const loadPendingChange = async () => {
                 </span>
               )}
             </div>
-      
-            {/* 予約を取り消すリンク（任意。実装済みなら表示） */}
-            <button
-              className="shrink-0 rounded-md border border-amber-300 bg-white/70 hover:bg-white px-3 py-1 text-xs text-amber-800"
-              onClick={async () => {
-                try {
-                  const ok = confirm('予約を取り消しますか？');
-                  if (!ok) return;
-                  const { data: { session } } = await supabase.auth.getSession();
-                  const token = session?.access_token;
-                  const res = await fetch('/api/stripe/cancel-schedule', {
-                    method: 'POST',
-                    headers: token ? { Authorization: `Bearer ${token}` } : {},
-                  });
-                  
-                  if (!res.ok) throw new Error(String(res.status));
-                  showToast('ダウングレード予約を取り消しました', undefined,
-                    window.innerWidth < 768 ? 'center' : 'top-right');
-                  await loadPendingChange(); // 取り消し後に再読込
-                  await refreshCredits();    // ついでに残数も同期
-                } catch (e) {
-                  showToast('取り消しに失敗しました', '時間をおいて再度お試しください',
-                    window.innerWidth < 768 ? 'center' : 'top-right');
-                }
-              }}
-            >
-              予約を取り消す
-            </button>
           </div>
         </div>
       )}
