@@ -10,13 +10,19 @@ export default function PricingDialog({
   onOpenChange,
   onBuy,               // アップグレード即時
   onScheduleDowngrade, 
-  currentTier,        // 現在のユーザープラン
+  currentTier, // 現在のユーザープラン
+  pendingNote,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onBuy: (plan: 'light' | 'basic' | 'pro') => Promise<void>;
   onScheduleDowngrade: (plan: 'light' | 'basic' | 'pro') => Promise<void>; // ★ 追加
   currentTier: Tier;
+  pendingNote?: {
+    fromPlan: 'light' | 'basic' | 'pro' | 'free';
+　  toPlan:   'light' | 'basic' | 'pro';
+    effectiveAt?: number; // unix(sec)
+  };
 }) {
   if (!open) return null;
 
@@ -57,6 +63,18 @@ export default function PricingDialog({
             <X className="h-5 w-5" />
           </button>
         </div>
+        {/* ダウングレード予約中の通知（任意表示） */}
+         {pendingNote && (
+           <div className="mx-4 mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:mx-6">
+             <span className="font-medium">ダウングレード予約中：</span>
+             <span className="ml-1">{pendingNote.fromPlan} → <b>{pendingNote.toPlan}</b></span>
+             {typeof pendingNote.effectiveAt === 'number' && (
+               <span className="ml-2 text-amber-800">
+                 （適用日 {new Date(pendingNote.effectiveAt * 1000).toLocaleDateString('ja-JP')}）
+               </span>
+             )}
+           </div>
+         )}
 
         <div className="max-h-[80vh] overflow-y-auto px-4 py-5 md:px-6">
           <div className="grid gap-6 md:grid-cols-3">
