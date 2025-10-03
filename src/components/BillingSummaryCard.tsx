@@ -75,6 +75,30 @@ export default function BillingSummaryCard() {
             </button>
           </div>
         )}
+        {pending?.hasPending && (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <div className="mb-2 flex items-center gap-2">
+              <span className="inline-flex h-2 w-2 rounded-full bg-amber-500"></span>
+              <span className="text-sm font-medium text-amber-800">
+                予定されている変更
+              </span>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-amber-900">
+                {pending.currentPlan} → <span className="font-semibold">{pending.nextPlan ?? '—'}</span>
+              </div>
+              <div className="text-sm text-amber-900">
+                適用日：{pending.effectiveAt
+                  ? new Date(pending.effectiveAt * 1000).toLocaleDateString('ja-JP')
+                  : '—'}
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-amber-700">
+              ※次回請求日（更新日）に自動で反映されます。直前までに再度プランを変更することで、上書きも可能です。
+            </p>
+          </div>
+        )}
+
       </div>
     </div>
   );
