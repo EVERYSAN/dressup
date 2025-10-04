@@ -42,6 +42,19 @@ export const Header: React.FC = () => {
 
   // 料金モーダル
   const [showPricing, setShowPricing] = useState(false);
+  // ▼ 追加：モバイルの「…」メニュー開閉
+  const [menuOpen, setMenuOpen] = useState(false);
+  
+  // メニューはリサイズ/スクロールで自動クローズ
+  useEffect(() => {
+    const close = () => setMenuOpen(false);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+  };
+}, []);
   // 追加（派生値）
   const currentPlanLabel = (subscriptionTier || 'free'); // 'free' | 'light' | 'basic' | 'pro'
   const remainingCredits = remaining;                    // number | null
@@ -257,43 +270,97 @@ const loadPendingChange = async () => {
 
   return (
     <>
-      <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
+      <header className="h-14 md:h-16 bg-white border-b border-gray-200 flex items-center justify-between px-3 md:px-6">
         {/* 左：タイトル */}
-        <div className="flex items-center space-x-4">
-          <h1 className="text-xl font-semibold text-black hidden md:block">
+        <div className="flex items-center gap-2 md:gap-4 min-w-0">
+          <h1 className="text-base md:text-xl font-semibold text-black hidden md:block whitespace-nowrap overflow-hidden text-ellipsis">
             DRESSUP | AI画像編集ツール
           </h1>
-          <h1 className="text-xl font-semibold text-black md:hidden">DRESSUP</h1>
-          <div className="text-xs text-gray-500 bg-gray-800 text-white px-2 py-1 rounded">1.0</div>
+          <h1 className="text-base md:text-xl font-semibold text-black md:hidden whitespace-nowrap">
+            DRESSUP
+          </h1>
+          <div className="text-[10px] md:text-xs text-gray-50 bg-gray-800 px-1.5 py-0.5 md:px-2 md:py-1 rounded">
+            1.0
+          </div>
         </div>
 
         {/* 右：購入/残数/支払い/認証/ヘルプ */}
-        <div className="flex items-center gap-8">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 md:gap-8 min-w-0">
+          {/* --- モバイル（md未満）：コンパクト表示 --- */}
+          <div className="flex items-center gap-2 md:hidden">
+            {isAuthed ? (
+              <>
+                {/* プラン＋残回数を1ピルに統合 */}
+                <span
+                  className={`whitespace-nowrap rounded-full px-3 py-1 text-xs border ${tierClass[subscriptionTier || 'free']}`}
+                  title="現在のご利用プラン / 残回数"
+                >
+                  {tierLabel[subscriptionTier || 'free']} ・ 残り {remaining ?? '-'} 回
+                </span>
+        
+                {/* 3点リーダーメニュー：購入 / Portal / ログアウト */}
+                <div className="relative">
+                  <button
+                    className="rounded-md border border-gray-300 p-1.5 text-sm hover:bg-gray-50"
+                    onClick={() => setMenuOpen((v) => !v)}
+                    aria-label="メニューを開く"
+                  >
+                    ⋯
+                  </button>
+                  {menuOpen && (
+                    <div
+                      className="absolute right-0 z-40 mt-2 w-48 rounded-md border border-gray-200 bg-white shadow-lg"
+                      onMouseLeave={() => setMenuOpen(false)}
+                    >
+                      <button
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                        onClick={() => { setShowPricing(true); setMenuOpen(false); }}
+                      >
+                        新規プラン購入
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                        onClick={() => { openPortal(); setMenuOpen(false); }}
+                      >
+                        プラン変更/解約
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                        onClick={() => { signOut(); setMenuOpen(false); }}
+                      >
+                        ログアウト
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <MiniBtn onClick={signIn} disabled={loading} icon={<LogIn size={16} />}>
+                {loading ? '…' : 'ログイン'}
+              </MiniBtn>
+            )}
+          </div>
+        
+          {/* --- PC（md以上）：従来の横並び --- */}
+          <div className="hidden md:flex items-center gap-2">
             {isAuthed ? (
               <>
                 <span
-                  className={`rounded-full px-3 py-1 text-sm ${tierClass[subscriptionTier || 'free']}`}
+                  className={`rounded-full px-3 py-1 text-sm whitespace-nowrap ${tierClass[subscriptionTier || 'free']}`}
                   title="現在のご利用プラン"
                 >
                   {tierLabel[subscriptionTier || 'free']}
                 </span>
-                <span className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1 text-sm">
+                <span className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1 text-sm whitespace-nowrap">
                   残り {remaining ?? '-'} 回
                 </span>
-
-                {/* モーダル起動 */}
-                <MiniBtn
-                  onClick={() => setShowPricing(true)}
-                  icon={<ChevronDown size={16} />}
-                >
+        
+                <MiniBtn onClick={() => setShowPricing(true)} icon={<ChevronDown size={16} />}>
                   新規プラン購入
                 </MiniBtn>
-
                 <MiniBtn onClick={openPortal} icon={<Wallet size={16} />}>
                   プラン変更/解約
                 </MiniBtn>
-
                 <MiniBtn onClick={signOut} icon={<LogOut size={16} />}>
                   ログアウト
                 </MiniBtn>
@@ -304,9 +371,10 @@ const loadPendingChange = async () => {
               </MiniBtn>
             )}
           </div>
-
+        
+          {/* ヘルプ（共通） */}
           <button
-            className="rounded-md p-2 hover:bg-gray-100"
+            className="rounded-md p-2 hover:bg-gray-100 shrink-0"
             onClick={() => setShowInfoModal(true)}
             aria-label="ヘルプ"
           >
