@@ -234,37 +234,7 @@ const toastContainerClass = (pos: ToastPos) => {
     }
   };
 
-  // Header 内の関数群の下に配置
-// Header.tsx 内（関数群の下にある loadPendingChange を置き換え）
-// Header.tsx 内（関数群の下あたり）
-const loadPendingChange = async () => {
-  try {
-    setPendingLoading(true);
 
-    // Supabase のアクセストークンを取得
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-
-    const res = await fetch('/api/stripe/pending-change', {
-      method: 'GET',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      cache: 'no-store',
-    });
-    if (!res.ok) throw new Error(String(res.status));
-
-    const data = await res.json(); // { toPlan?: 'light'|'basic'|'pro', applyAt?: number|null }
-    if (data?.toPlan) {
-      setPending({ toPlan: data.toPlan, applyAt: data.applyAt ?? null });
-    } else {
-      setPending(null);
-    }
-  } catch (e) {
-    console.warn('[pending-change] fetch failed', e);
-    setPending(null);
-  } finally {
-    setPendingLoading(false);
-  }
-};
 
 
 
