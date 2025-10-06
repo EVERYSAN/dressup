@@ -217,9 +217,6 @@ export const PromptComposer: React.FC = () => {
   return (
     <>
       <div className="w-[92vw] md:w-72 xl:w-80 h-full bg-emerald-50 border-r border-emerald-100 p-4 md:p-6 flex flex-col space-y-4 md:space-y-6 overflow-y-auto shadow-sm relative">
-        <div className="absolute top-2 right-2 text-[10px] px-2 py-0.5 rounded bg-emerald-900/80 text-white/90 select-none">
-          prompt:{hasPrompt ? '1' : '0'} / base:{baseImage ? '1' : '0'} / pending:{isEditPending ? '1' : '0'}
-        </div>
 
         {/* ==== Header ==== */}
         <div className="mb-2">
