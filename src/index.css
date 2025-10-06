@@ -98,20 +98,3 @@ body {
 .with-tabbar-pad{
   padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom,0px) + 14px);
 }
-/* ===== DRESSUP: 上部ツールバーの「更新」「マスク」ボタンを非表示 ===== */
-/* まずは属性名ベースで “見えなくするだけ”（ロジックは残る） */
-button[aria-label="マスク"],
-button[title="マスク"],
-button[data-testid="mask-button"],
-button[data-action="mask-toggle"],
-button[aria-label="更新"],
-button[title="更新"],
-button[data-testid="refresh-button"],
-button[data-action="refresh"],
-/* 英語UIの保険 */
-button[aria-label="Mask"],
-button[title="Mask"],
-button[aria-label="Refresh"],
-button[title="Refresh"] {
-  display: none !important;
-}
