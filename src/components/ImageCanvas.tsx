@@ -1,5 +1,5 @@
 // src/components/ImageCanvas.tsx
-import React, { useRef, useEffect, useState, useMemo } from 'react';
+import { Download, Eraser } from 'lucide-react';
 import { Stage, Layer, Image as KonvaImage, Line, Text, Rect, Group } from 'react-konva';
 import { useAppStore } from '../store/useAppStore';
 import { Button } from './ui/Button';
@@ -13,18 +13,16 @@ const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(ma
 export const ImageCanvas: React.FC = () => {
   const {
     canvasImage,
-    // ズーム・パンは使わないが、既存ストアに残っていても無視する
     brushStrokes,
     addBrushStroke,
     clearBrushStrokes,
-    showMasks,
-    setShowMasks,
     selectedTool,
     isGenerating,
     brushSize,
     setBrushSize,
     subscriptionTier = 'free',
   } = useAppStore();
+
 
   // === Refs
   const stageRef = useRef<any>(null);
@@ -131,12 +129,6 @@ export const ImageCanvas: React.FC = () => {
     setCurrentStroke([]);
   };
 
-  const handleReset = () => {
-    // もはやズームやパンは無いが、「初期位置に戻す」意味で描画中を破棄
-    setIsDrawing(false);
-    setCurrentStroke([]);
-  };
-
   // === ダウンロード
   const handleDownload = () => {
     if (!canvasImage) return;
@@ -158,11 +150,8 @@ export const ImageCanvas: React.FC = () => {
       <div className="p-3 border-b border-gray-200 bg-white relative z-10 pointer-events-auto">
         <div className="flex items-center justify-between">
           {/* 左側：ズームUIは撤去、最低限だけ */}
-          <div className="flex items-center space-x-2">
-            <Button variant="outline" size="sm" onClick={handleReset} title="初期状態に戻す">
-              <RotateCcw className="h-4 w-4" />
-            </Button>
-          </div>
+          <div className="flex items-center space-x-2" />
+
 
           {/* 右側：マスク・DL等は従来通り */}
           <div className="flex items-center space-x-2">
@@ -191,17 +180,6 @@ export const ImageCanvas: React.FC = () => {
                 </Button>
               </>
             )}
-
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowMasks(!showMasks)}
-              className={cn(showMasks && 'bg-yellow-400/10 border-yellow-400/50')}
-              title="マスク表示切替"
-            >
-              {showMasks ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-              <span className="hidden sm:inline ml-2 text-gray-600">マスク</span>
-            </Button>
 
             {canvasImage && (
               <Button variant="secondary" size="sm" onClick={handleDownload}>
