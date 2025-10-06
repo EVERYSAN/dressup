@@ -1,10 +1,10 @@
 // src/components/ImageCanvas.tsx
-import { Download, Eraser } from 'lucide-react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { Stage, Layer, Image as KonvaImage, Line, Text, Rect, Group } from 'react-konva';
 import { useAppStore } from '../store/useAppStore';
 import { Button } from './ui/Button';
-import { RotateCcw, Download, Eye, EyeOff, Eraser } from 'lucide-react';
-import { cn } from '../utils/cn';
+import { Download, Eraser } from 'lucide-react';
+
 
 // 0.1〜3.0 のような「ズーム管理」はもう使わない。
 // すべて「コンテナに収まるスケール = fitScale」で描画する。
