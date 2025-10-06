@@ -262,8 +262,7 @@ export const ImageCanvas: React.FC = () => {
             {image && <KonvaImage image={image} x={imageOffset.x} y={imageOffset.y} />}
 
             {/* 既存マスク（表示切替可能） */}
-            {showMasks &&
-              Array.isArray(brushStrokes) &&
+            {Array.isArray(brushStrokes) &&
               brushStrokes.map((stroke) => (
                 <Line
                   key={stroke.id}
