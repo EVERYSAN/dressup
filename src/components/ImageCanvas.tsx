@@ -33,6 +33,9 @@ export const ImageCanvas: React.FC = () => {
   const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentStroke, setCurrentStroke] = useState<number[]>([]);
+  // ツールバーを出す条件：マスクツール使用中 or 画像がある（DLボタン用）
+  const showToolbar = selectedTool === 'mask' || Boolean(canvasImage);
+
 
   // === コンテナサイズ追従
   useEffect(() => {
@@ -147,49 +150,47 @@ export const ImageCanvas: React.FC = () => {
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar（前面・クリック可） */}
-      <div className="p-3 border-b border-gray-200 bg-white relative z-10 pointer-events-auto">
-        <div className="flex items-center justify-between">
-          {/* 左側：ズームUIは撤去、最低限だけ */}
-          <div className="flex items-center space-x-2" />
-
-
-          {/* 右側：マスク・DL等は従来通り */}
-          <div className="flex items-center space-x-2">
-            {selectedTool === 'mask' && (
-              <>
-                <div className="flex items-center space-x-2 mr-2">
-                  <span className="text-xs text-gray-400">Brush:</span>
-                  <input
-                    type="range"
-                    min="5"
-                    max="50"
-                    value={brushSize ?? 10}
-                    onChange={(e) => setBrushSize(parseInt(e.target.value || '10', 10))}
-                    className="w-16 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-                  />
-                  <span className="text-xs text-gray-400 w-6">{brushSize ?? 10}</span>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={clearBrushStrokes}
-                  disabled={!Array.isArray(brushStrokes) || brushStrokes.length === 0}
-                  title="すべてのストロークを消去"
-                >
-                  <Eraser className="h-4 w-4" />
+      {showToolbar && (
+        <div className="p-2 md:p-3 border-b border-gray-200 bg-white relative z-10 pointer-events-auto">
+          <div className="flex items-center justify-end">
+            {/* 右側：マスク用UIとDL */}
+            <div className="flex items-center space-x-2">
+              {selectedTool === 'mask' && (
+                <>
+                  <div className="flex items-center space-x-2 mr-2">
+                    <span className="text-xs text-gray-400">Brush:</span>
+                    <input
+                      type="range"
+                      min="5"
+                      max="50"
+                      value={brushSize ?? 10}
+                      onChange={(e) => setBrushSize(parseInt(e.target.value || '10', 10))}
+                      className="w-16 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                    />
+                    <span className="text-xs text-gray-400 w-6">{brushSize ?? 10}</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={clearBrushStrokes}
+                    disabled={!Array.isArray(brushStrokes) || brushStrokes.length === 0}
+                    title="すべてのストロークを消去"
+                  >
+                    <Eraser className="h-4 w-4" />
+                  </Button>
+                </>
+              )}
+      
+              {canvasImage && (
+                <Button variant="secondary" size="sm" onClick={handleDownload}>
+                  <Download className="h-4 w-4 mr-2" />
+                  <span className="hidden sm:inline">Download</span>
                 </Button>
-              </>
-            )}
-
-            {canvasImage && (
-              <Button variant="secondary" size="sm" onClick={handleDownload}>
-                <Download className="h-4 w-4 mr-2" />
-                <span className="hidden sm:inline">Download</span>
-              </Button>
-            )}
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Canvas */}
       <div
