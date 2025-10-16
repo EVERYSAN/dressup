@@ -342,19 +342,6 @@ export const PromptComposer: React.FC = () => {
             </div>
           )}
         </div>
-        {/* Aspect ratio preset */}
-        <div className="mt-3">
-          <label className="text-sm font-medium text-gray-800 mb-2 block">
-            生成する縦横比
-          </label>
-        
-         
-        
-          {/* （任意）注意書き */}
-          <p className="mt-1 text-[11px] text-gray-500">
-            ※ アスペクト比の反映はサーバ側の実装に依存します（この値は /api/generate へ渡されます）。
-          </p>
-        </div>
 
         {/* Prompt */}
         <div>
@@ -420,10 +407,7 @@ export const PromptComposer: React.FC = () => {
             ))}
           </div>
         
-          {/* 注意書き */}
-          <p className="mt-1 text-[11px] text-gray-500">
-            ※ アスペクト比の反映はサーバ側の実装に依存します（この値は /api/generate へ渡されます）。
-          </p>
+        
         </div>
 
         {/* Execute */}
