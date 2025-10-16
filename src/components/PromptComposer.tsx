@@ -92,7 +92,9 @@ export const PromptComposer: React.FC = () => {
         alert('ログインしてください（トークンが取得できませんでした）');
         return;
       }
-
+      
+      const { width, height } = aspectToSize(aspect);
+      
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: {
@@ -106,6 +108,9 @@ export const PromptComposer: React.FC = () => {
           // お好みで追加：temperature / seed を使いたい場合は API 側と合わせて送る
           temperature,
           seed,
+          aspect,       // '1:1' | '4:3' | '3:4' | '16:9' | '9:16'
+          width,        // 例: 1024, 1280 など
+          height,       // 例: 1024, 720 など
         }),
       });
 
