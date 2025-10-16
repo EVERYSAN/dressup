@@ -337,6 +337,41 @@ export const PromptComposer: React.FC = () => {
             </div>
           )}
         </div>
+        {/* Aspect ratio preset */}
+        <div className="mt-3">
+          <label className="text-sm font-medium text-gray-800 mb-2 block">
+            生成する縦横比
+          </label>
+        
+          {/* ラジオ群（スマホ想定で2行折り返し） */}
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            {(['1:1','4:3','3:4','16:9','9:16'] as AspectPreset[]).map((opt) => (
+              <label
+                key={opt}
+                className={`flex items-center justify-center px-2 py-1.5 rounded border cursor-pointer ${
+                  aspect === opt
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-white text-gray-800 border-emerald-200 hover:border-emerald-300'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="aspect"
+                  value={opt}
+                  checked={aspect === opt}
+                  onChange={() => setAspect(opt)}
+                  className="hidden"
+                />
+                {opt}
+              </label>
+            ))}
+          </div>
+        
+          {/* （任意）注意書き */}
+          <p className="mt-1 text-[11px] text-gray-500">
+            ※ アスペクト比の反映はサーバ側の実装に依存します（この値は /api/generate へ渡されます）。
+          </p>
+        </div>
 
         {/* Prompt */}
         <div>
