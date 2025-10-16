@@ -166,7 +166,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const userId = userInfo.user.id;
 
     // 入力
-    const { prompt, image1, image2, temperature } = req.body || {};
+    const { prompt, image1, image2, temperature , width, height } = req.body || {};
+    // …上の行の直後あたり
+    const reqW = Number.isFinite(width)  ? Math.max(256, Math.min(2048, Math.floor(width)))  : null;
+    const reqH = Number.isFinite(height) ? Math.max(256, Math.min(2048, Math.floor(height))) : null;
+
     if (!prompt || !image1) {
       return res.status(400).json({ error: 'Bad Request', detail: 'prompt and image1 are required' });
     }
