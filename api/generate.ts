@@ -256,12 +256,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const json = await resp.json();
 
     // 画像パート抽出（snake/camel 両対応）
+   // 画像パート抽出（snake/camel 両対応）
     const candidates = json?.candidates || [];
     const c0 = candidates[0]?.content?.parts || [];
     let imageBase64: string | null = null;
     let imageMime: string | null = null;
     const textOut: string[] = [];
-
+    
     for (const part of c0) {
       if (part?.inlineData?.data) {
         imageBase64 = part.inlineData.data;
@@ -275,36 +276,58 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       if (part?.text) textOut.push(part.text);
     }
-
+    
     if (!imageBase64) {
       return res.status(500).json({ error: 'No image in response', text: textOut.join('\n') });
     }
-    // === 無料プランなら透かし焼き込み ===
-    const mustWatermark = await isFreePlan(req); // ②で追加した関数をそのまま利用
-    let outBuffer = Buffer.from(imageBase64, 'base64');
-    let outMime = 'image/png';
-
+    
+    // ▼▼ ここから差し替え ▼▼
+    
+    // 1) Sharp パイプラインを組む（まずは生成画像をデコード）
+    let pipeline = sharp(Buffer.from(imageBase64, 'base64'));
+    
+    // 2) クライアントから width/height が来ていたら、そのサイズにリサイズ
+    //    - 例: 1:1 → 1024x1024、16:9 → 1440x810 など UI 側で計算して送っている想定
+    //    - fit:'cover' でクロップしつつジャストに合わせる（背景は作らない）
+    if (reqW && reqH) {
+      pipeline = pipeline.resize(reqW, reqH, { fit: 'cover' });
+    }
+    
+    // 3) ここで一旦メタ取得（透かしのタイルサイズを決めるため）
+    const metaAfterResize = await pipeline.metadata();
+    const finalW = metaAfterResize.width ?? reqW ?? 1024;
+    const finalH = metaAfterResize.height ?? reqH ?? 1024;
+    
+    // 4) プラン判定（無料なら透かしを焼く）
+    const mustWatermark = await isFreePlan(req);
+    
+    let outBuffer: Buffer;
+    let outMime = 'image/png'; // 透かし時はPNG固定。透かし無しは元MIMEでもOKにしたければ分岐可。
+    
     if (mustWatermark) {
-      const img = sharp(outBuffer);
-      const meta = await img.metadata();
-      const w = meta.width ?? 1024;
-      const h = meta.height ?? 1024;
-      const svg = Buffer.from(watermarkSVG(w, h));
-      outBuffer = await img
-        .composite([{ input: svg, top: 0, left: 0 }]) // 斜めタイルで全面透かし
-        .png({ quality: 92 })                         // 出力はPNGに統一
+      // 斜めタイル透かしの SVG を合成
+      const svg = Buffer.from(watermarkSVG(finalW, finalH));
+      outBuffer = await pipeline
+        .composite([{ input: svg, top: 0, left: 0 }])
+        .png({ quality: 92 })
         .toBuffer();
       outMime = 'image/png';
     } else {
-      // 有料は元のMIMEを尊重（必要ならPNGに変えてもOK）
+      // そのまま出す（必要なら jpeg/webp に書き換えも可）
+      // 元のMIMEが undefined の場合もあるのでフォールバック
       outMime = imageMime || 'image/png';
+      // Sharp は mime を自動では保持しないので、ここでは PNG として出すのが安全
+      // 「元MIMEのまま」が必要なら imageMime を見て jpeg()/png()/webp() に分岐してください
+      outBuffer = await pipeline.png({ quality: 92 }).toBuffer();
     }
-
+    
+    // 5) 返却
     const outBase64 = outBuffer.toString('base64');
     return res.status(200).json({
-      image: { data: outBase64, mimeType: outMime },
-      watermarked: mustWatermark, // ← 任意（UIで“無料表示”制御に使える）
+      image: { data: outBase64, mimeType: outMime, width: finalW, height: finalH },
+      watermarked: mustWatermark,
     });
+
   } catch (e: any) {
     return res.status(500).json({ error: 'Server error', detail: String(e?.message || e) });
   }
