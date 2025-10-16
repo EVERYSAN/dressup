@@ -42,6 +42,18 @@ export const PromptComposer: React.FC = () => {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showHintsModal, setShowHintsModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  type AspectPreset = '1:1' | '4:3' | '3:4' | '16:9' | '9:16';
+  const [aspect, setAspect] = useState<AspectPreset>('1:1');  
+
+  const aspectToSize = (a: AspectPreset) => {
+  switch (a) {
+    case '1:1':  return { width: 1024, height: 1024 };
+    case '4:3':  return { width: 1024, height: 768  };
+    case '3:4':  return { width: 768,  height: 1024 };
+    case '16:9': return { width: 1280, height: 720  };
+    case '9:16': return { width: 720,  height: 1280 };
+    }
+  };
 
   // --- 実行ボタンの可否を明示的に判断 ---
   const promptSafe = (currentPrompt ?? '').trim();
