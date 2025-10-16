@@ -42,6 +42,18 @@ export const PromptComposer: React.FC = () => {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showHintsModal, setShowHintsModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  type AspectPreset = '1:1' | '4:3' | '3:4' | '16:9' | '9:16';
+  const [aspect, setAspect] = useState<AspectPreset>('1:1');  
+
+  const aspectToSize = (a: AspectPreset) => {
+  switch (a) {
+    case '1:1':  return { width: 1024, height: 1024 };
+    case '4:3':  return { width: 1024, height: 768  };
+    case '3:4':  return { width: 768,  height: 1024 };
+    case '16:9': return { width: 1280, height: 720  };
+    case '9:16': return { width: 720,  height: 1280 };
+    }
+  };
 
   // --- 実行ボタンの可否を明示的に判断 ---
   const promptSafe = (currentPrompt ?? '').trim();
@@ -80,7 +92,9 @@ export const PromptComposer: React.FC = () => {
         alert('ログインしてください（トークンが取得できませんでした）');
         return;
       }
-
+      
+      const { width, height } = aspectToSize(aspect);
+      
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: {
@@ -94,6 +108,9 @@ export const PromptComposer: React.FC = () => {
           // お好みで追加：temperature / seed を使いたい場合は API 側と合わせて送る
           temperature,
           seed,
+          aspect,       // '1:1' | '4:3' | '3:4' | '16:9' | '9:16'
+          width,        // 例: 1024, 1280 など
+          height,       // 例: 1024, 720 など
         }),
       });
 
@@ -359,6 +376,38 @@ export const PromptComposer: React.FC = () => {
                 : 'とても良い詳細です'}
             </span>
           </button>
+        </div>
+        {/* === 縦横比（変更内容の指示の直後 / 実行ボタンの直前） === */}
+        <div className="mt-3">
+          <label className="text-sm font-medium text-gray-800 mb-2 block">
+            生成する縦横比
+          </label>
+        
+          {/* ラジオ群（スマホで2行折返し） */}
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            {(['1:1','4:3','3:4','16:9','9:16'] as AspectPreset[]).map((opt) => (
+              <label
+                key={opt}
+                className={`flex items-center justify-center px-2 py-1.5 rounded border cursor-pointer ${
+                  aspect === opt
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-white text-gray-800 border-emerald-200 hover:border-emerald-300'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="aspect"
+                  value={opt}
+                  checked={aspect === opt}
+                  onChange={() => setAspect(opt)}
+                  className="hidden"
+                />
+                {opt}
+              </label>
+            ))}
+          </div>
+        
+        
         </div>
 
         {/* Execute */}
