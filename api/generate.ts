@@ -129,6 +129,70 @@ async function resolveUsableModel(rawModel: string): Promise<{ modelId: string; 
     if (found) return { modelId: target, apiBase };
   }
 
+    // --- retry helper for Gemini ---
+  // INTERNAL(500) やネットワークエラー時に、最大3回まで軽いフォールバックで再試行する
+  async function callGeminiWithRetry(
+    endpoint: string,
+    body: any,
+    apiKey: string,
+    opts?: { timeoutMs?: number; trySwitchApiBase?: () => Promise<{ endpoint: string } | null>; tryDropImage2?: () => boolean; }
+  ) {
+    const timeoutMs = opts?.timeoutMs ?? 55_000;
+  
+    // 逐次フォールバック方針:
+    // 1回目: そのまま
+    // 2回目: 画像2を落として再試行（複数画像が内部エラーのトリガーになることがある）
+    // 3回目: API base を切替（v1 <-> v1beta）して再試行
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        // タイムアウト管理
+        const ac = new AbortController();
+        const to = setTimeout(() => ac.abort(), timeoutMs);
+  
+        const resp = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: ac.signal,
+        }).finally(() => clearTimeout(to));
+  
+        if (resp.ok) return resp;
+  
+        const text = await resp.text().catch(() => '');
+        // INTERNAL / 500 は再試行対象にする
+        if (resp.status >= 500 || /INTERNAL/.test(text)) {
+          // fall through to retry
+        } else {
+          // 4xx などは打ち切り
+          return resp;
+        }
+      } catch (e) {
+        // ネットワークエラーもリトライ
+      }
+  
+      // フォールバックを適用
+      if (attempt === 1 && opts?.tryDropImage2 && opts.tryDropImage2()) {
+        // 2回目は画像2を除去した body で再試行
+        continue;
+      }
+  
+      if (attempt === 2 && opts?.trySwitchApiBase) {
+        // 3回目は apiBase 切替
+        const sw = await opts.trySwitchApiBase();
+        if (sw) {
+          endpoint = sw.endpoint;
+          continue;
+        }
+      }
+  
+      // 短い待機（指数バックオフ）
+      await new Promise((r) => setTimeout(r, 300 * attempt));
+    }
+  
+    // 最終的に失敗
+    throw new Error('Gemini request failed after retries');
+  }
+
   // 見つからなければ一覧の先頭10件を添えてエラー
   const fallback = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(API_KEY)}`, {
     headers: { 'x-goog-api-key': API_KEY },
